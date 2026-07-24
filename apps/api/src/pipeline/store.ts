@@ -3,9 +3,11 @@ import type {
   GenerationPlanV1,
   PipelineStageLogEntry,
   PipelineStageName,
+  SandboxValidationRequest,
 } from "@reactify/generation-contracts";
 import { GenerationPlanV1Schema } from "@reactify/generation-contracts";
 import { deriveUserStatus, type FeatureFlags } from "@reactify/shared";
+import { toGeneratedProjectSummary } from "../lib/generatedProjectResponse.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
 import type { GenerationRecord, GenerationStoreSnapshot, PipelineState } from "./types.js";
 
@@ -34,11 +36,19 @@ export class GenerationStore {
       },
       analysis: null,
       plan: null,
+      project: null,
+      schemaValidation: null,
+      staticValidation: null,
+      sandboxValidation: null,
+      projectHash: null,
+      validationReportFingerprint: null,
       editedByUser: false,
       confirmedAt: null,
       awaitingPlanConfirmation: false,
+      awaitingSandboxValidation: false,
       pipelineState: null,
       resumeInProgress: false,
+      sandboxResumeInProgress: false,
       errors: [],
       cancelled: false,
       failStage: input.failStage,
@@ -64,6 +74,7 @@ export class GenerationStore {
     record.status = "Cancelled";
     record.activeStage = null;
     record.awaitingPlanConfirmation = false;
+    record.awaitingSandboxValidation = false;
     record.pipelineState = null;
     record.updatedAt = new Date().toISOString();
 
@@ -71,7 +82,8 @@ export class GenerationStore {
       if (
         stage.status === "pending" ||
         stage.status === "running" ||
-        stage.status === "awaiting_confirmation"
+        stage.status === "awaiting_confirmation" ||
+        stage.status === "awaiting_client"
       ) {
         stage.status = "cancelled";
         stage.completedAt = record.updatedAt;
@@ -91,6 +103,21 @@ export class GenerationStore {
       status: "running",
       startedAt,
     });
+  }
+
+  markStageAwaitingClient(record: GenerationRecord, stage: PipelineStageName): void {
+    const current = [...record.stages].reverse().find((item) => item.stage === stage && !item.completedAt);
+    const updatedAt = new Date().toISOString();
+
+    if (current) {
+      current.status = "awaiting_client";
+      current.completedAt = undefined;
+    }
+
+    record.activeStage = stage;
+    record.status = "Compiling";
+    record.awaitingSandboxValidation = true;
+    record.updatedAt = updatedAt;
   }
 
   markStageAwaitingConfirmation(record: GenerationRecord, stage: PipelineStageName): void {
@@ -144,6 +171,20 @@ export class GenerationStore {
     };
     record.analysis = state.analysisMetadata ?? null;
     record.plan = state.planMetadata ?? null;
+    record.project = state.projectMetadata ?? null;
+    record.schemaValidation = state.schemaValidation ?? null;
+    record.staticValidation = state.staticValidation ?? null;
+    record.sandboxValidation = state.sandboxValidation ?? null;
+    record.projectHash = state.projectHash ?? record.projectHash;
+  }
+
+  pauseForSandboxValidation(record: GenerationRecord, state: PipelineState): void {
+    record.pipelineState = state;
+    record.awaitingSandboxValidation = true;
+    record.status = "Compiling";
+    record.activeStage = "sandbox_compilation";
+    record.projectHash = state.projectHash ?? record.projectHash;
+    record.updatedAt = new Date().toISOString();
   }
 
   pauseForPlanReview(record: GenerationRecord, state: PipelineState): void {
@@ -214,7 +255,107 @@ export class GenerationStore {
 
   completeResume(record: GenerationRecord): void {
     record.resumeInProgress = false;
+    record.sandboxResumeInProgress = false;
     record.pipelineState = null;
+  }
+
+  submitSandboxValidation(input: {
+    generationId: string;
+    report: SandboxValidationRequest;
+    reportFingerprint: string;
+    expectedProjectHash: string;
+  }):
+    | { ok: true; record: GenerationRecord; duplicate: boolean }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "invalid_state"
+          | "hash_mismatch"
+          | "duplicate_conflict"
+          | "already_resumed";
+      } {
+    const record = this.records.get(input.generationId);
+    if (!record) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (record.cancelled || record.status === "Cancelled" || record.status === "Failed") {
+      return { ok: false, reason: "invalid_state" };
+    }
+
+    if (record.validationReportFingerprint) {
+      if (record.validationReportFingerprint === input.reportFingerprint) {
+        return { ok: true, record, duplicate: true };
+      }
+      return { ok: false, reason: "duplicate_conflict" };
+    }
+
+    if (!record.awaitingSandboxValidation) {
+      return { ok: false, reason: "invalid_state" };
+    }
+
+    if (record.projectHash !== input.expectedProjectHash || input.report.projectHash !== input.expectedProjectHash) {
+      return { ok: false, reason: "hash_mismatch" };
+    }
+
+    const compilationSucceeded = input.report.compilation.success;
+    const runtimeSucceeded = compilationSucceeded && input.report.runtime.success;
+    const repairRequired = !compilationSucceeded || !runtimeSucceeded;
+
+    const state: PipelineState = {
+      ...(record.pipelineState ?? { imageId: record.imageId }),
+      sandboxValidation: {
+        projectHash: input.report.projectHash,
+        compilation: input.report.compilation,
+        runtime: input.report.runtime,
+        validatedAt: input.report.validatedAt,
+      },
+      repairRequired,
+      repairImplemented: false,
+      projectHash: input.report.projectHash,
+      awaitingSandboxValidation: false,
+    };
+
+    record.pipelineState = state;
+    record.sandboxValidation = state.sandboxValidation ?? null;
+    record.validationReportFingerprint = input.reportFingerprint;
+    record.awaitingSandboxValidation = false;
+    record.sandboxResumeInProgress = true;
+    record.status = "Repairing";
+    record.updatedAt = new Date().toISOString();
+
+    this.markStageFinished(record, "sandbox_compilation", {
+      status: compilationSucceeded ? "completed" : "failed",
+      durationMs: input.report.compilation.durationMs,
+      errorCode: compilationSucceeded ? undefined : "SANDBOX_COMPILATION_FAILED",
+      errorMessage: compilationSucceeded ? undefined : "Browser-assisted sandbox compilation failed.",
+    });
+
+    this.markStageFinished(record, "runtime_validation", {
+      status: runtimeSucceeded ? "completed" : "failed",
+      durationMs: input.report.runtime.durationMs,
+      errorCode: runtimeSucceeded ? undefined : "RUNTIME_VALIDATION_FAILED",
+      errorMessage: runtimeSucceeded ? undefined : "Browser-assisted runtime validation failed.",
+    });
+
+    if (!compilationSucceeded) {
+      record.errors.push({
+        stage: "sandbox_compilation",
+        code: "SANDBOX_COMPILATION_FAILED",
+        message: "Sandbox compilation reported errors from the browser client.",
+      });
+    }
+
+    if (compilationSucceeded && !runtimeSucceeded) {
+      record.errors.push({
+        stage: "runtime_validation",
+        code: "RUNTIME_VALIDATION_FAILED",
+        message: "Runtime validation reported errors from the browser client.",
+      });
+    }
+
+    return { ok: true, record, duplicate: false };
   }
 
   toSnapshot(record: GenerationRecord): GenerationStoreSnapshot {
@@ -235,12 +376,24 @@ export class GenerationStore {
       status: record.status,
       activeStage: record.activeStage,
       stages: record.stages,
-      outputs: record.outputs,
+      outputs: {
+        designAnalysis: record.outputs.designAnalysis,
+        generationPlan: record.outputs.generationPlan,
+        generatedProject: record.outputs.generatedProject
+          ? toGeneratedProjectSummary(record.outputs.generatedProject)
+          : null,
+      },
       analysis: record.analysis,
       plan: record.plan,
+      project: record.project,
+      schemaValidation: record.schemaValidation,
+      staticValidation: record.staticValidation,
+      sandboxValidation: record.sandboxValidation,
+      projectHash: record.projectHash,
       editedByUser: record.editedByUser,
       confirmedAt: record.confirmedAt,
       awaitingPlanConfirmation: record.awaitingPlanConfirmation,
+      awaitingSandboxValidation: record.awaitingSandboxValidation,
       errors: record.errors,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

@@ -1,34 +1,37 @@
-import { GeneratedProjectV1Schema } from "@reactify/generation-contracts";
-import { DesignAnalysisV1Schema } from "@reactify/generation-contracts";
-import { GenerationPlanV1Schema } from "@reactify/generation-contracts";
-import type { StageResult } from "@reactify/shared";
+import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
+import { runSchemaProjectValidation } from "../../lib/validation/staticProjectValidator.js";
 import type { PipelineState } from "../types.js";
-import type { StageExecutor } from "@reactify/shared";
 
-export const schemaValidationStage: StageExecutor = async (input: unknown) => {
+export const schemaValidationStage: StageExecutor = async (input) => {
   const state = input as PipelineState;
 
-  try {
-    if (state.designAnalysis) {
-      DesignAnalysisV1Schema.parse(state.designAnalysis);
-    }
-    if (state.generationPlan) {
-      GenerationPlanV1Schema.parse(state.generationPlan);
-    }
-    if (state.generatedProject) {
-      GeneratedProjectV1Schema.parse(state.generatedProject);
-    }
-  } catch {
+  if (!state.generatedProject) {
     return {
       status: "failed",
-      errorCode: "GENERATION_SCHEMA_INVALID",
-      errorMessage: "One or more pipeline contracts failed schema validation.",
+      errorCode: ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
+      errorMessage: "Generated project is missing for schema validation.",
       durationMs: 0,
     };
   }
 
+  const result = runSchemaProjectValidation(state.generatedProject);
+  const output = {
+    schemaValidation: result,
+  };
+
+  if (!result.valid) {
+    return {
+      status: "failed",
+      errorCode: ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
+      errorMessage: result.errors[0]?.message ?? "Generated project failed schema validation.",
+      output,
+      durationMs: 0,
+    } satisfies StageResult<Partial<PipelineState>>;
+  }
+
   return {
     status: "completed",
+    output,
     durationMs: 0,
-  } satisfies StageResult;
+  } satisfies StageResult<Partial<PipelineState>>;
 };

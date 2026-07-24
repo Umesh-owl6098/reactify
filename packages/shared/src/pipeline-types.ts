@@ -12,7 +12,7 @@ export interface LoadedPrompt {
 }
 
 export type LoadPromptFn = (
-  name: "design-analysis" | "generation-plan" | "generation" | "repair",
+  name: "design-analysis" | "generation-plan" | "react-project-generation" | "generation" | "repair",
 ) => LoadedPrompt;
 
 export interface AIStageConfig {

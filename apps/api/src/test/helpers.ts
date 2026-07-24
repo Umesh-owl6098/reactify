@@ -54,9 +54,9 @@ export async function createTestServer(options: { aiProvider?: AIProvider; stora
 }
 
 export async function waitForGenerationStatus(
-  getStatus: () => Promise<{ status: string; awaitingPlanConfirmation?: boolean }>,
+  getStatus: () => Promise<{ status: string; awaitingPlanConfirmation?: boolean; awaitingSandboxValidation?: boolean }>,
   expected: string,
-  timeoutMs = 3000,
+  timeoutMs = 5000,
 ): Promise<void> {
   const started = Date.now();
 
@@ -73,3 +73,12 @@ export async function waitForGenerationStatus(
 }
 
 export { writeFile };
+export {
+  completeSandboxValidation,
+  createFailedCompilationSandboxValidationReport,
+  createFailedRuntimeSandboxValidationReport,
+  createSuccessfulSandboxValidationReport,
+  getFixtureProjectHash,
+  submitSandboxValidationReport,
+  waitForAwaitingSandboxValidation,
+} from "./sandboxValidationHelpers.js";

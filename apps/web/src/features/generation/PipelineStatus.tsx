@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<GenerationUserStatus, string> = {
   Validating: "Validating",
   Compiling: "Compiling",
   Repairing: "Repairing",
+  RepairRequired: "Repair required",
   Ready: "Ready",
   Failed: "Failed",
   Cancelled: "Cancelled",
@@ -47,8 +48,8 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
           Generation pipeline
         </h2>
         <p className="mt-1 text-sm text-slate-300">
-          Upload validation and design analysis run against the screenshot. Later stages still use
-          deterministic fixtures.
+          Upload validation, design analysis, plan creation, React project generation, and browser-assisted
+          Sandpack validation run against the screenshot.
         </p>
       </div>
 
@@ -100,7 +101,31 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
 
           {isPlanningReview ? (
             <StatusBanner tone="info" title="Awaiting plan confirmation">
-              Review the generated plan and confirm before mocked code generation continues.
+              Review the generated plan and confirm before React code generation continues.
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "Generating" && isPolling ? (
+            <StatusBanner tone="info" title="Generating React project">
+              Claude is generating the React + Tailwind source files from the confirmed plan.
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "Validating" && isPolling ? (
+            <StatusBanner tone="info" title="Validating generated project">
+              Schema and static validation are checking the generated project structure and source safety.
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "Compiling" && isPolling ? (
+            <StatusBanner tone="info" title="Compiling in browser">
+              Sandpack is compiling the generated project in your browser while the backend waits for a validation report.
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "RepairRequired" ? (
+            <StatusBanner tone="error" title="Repair required">
+              Sandbox compilation or runtime validation failed. Automatic AI repair is not implemented yet.
             </StatusBanner>
           ) : null}
 
@@ -124,11 +149,7 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
           {activeStatus === "Ready" ? (
             <div className="space-y-4 border-t border-slate-700 pt-4">
               <OutputSummary
-                title="Generation Plan (mock)"
-                summary={`${status.outputs.generationPlan?.components.length ?? 0} components · ${status.outputs.generationPlan?.files.length ?? 0} files`}
-              />
-              <OutputSummary
-                title="Generated Project (mock)"
+                title="Generation complete"
                 summary={`${status.outputs.generatedProject?.projectName ?? "Project"} · ${status.outputs.generatedProject?.files.length ?? 0} files`}
               />
             </div>

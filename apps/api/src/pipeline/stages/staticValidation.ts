@@ -1,45 +1,51 @@
-import { ALLOWED_DEPENDENCIES } from "../../lib/allowlist.js";
-import type { StageResult } from "@reactify/shared";
+import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
+import { runStaticProjectValidation } from "../../lib/validation/staticProjectValidator.js";
 import type { PipelineState } from "../types.js";
-import type { StageExecutor } from "@reactify/shared";
 
-export const staticValidationStage: StageExecutor = async (input: unknown) => {
+export const staticValidationStage: StageExecutor = async (input) => {
   const state = input as PipelineState;
-  const project = state.generatedProject;
 
-  if (!project) {
+  if (!state.generatedProject) {
     return {
       status: "failed",
-      errorCode: "GENERATION_SCHEMA_INVALID",
+      errorCode: ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
       errorMessage: "Generated project is missing for static validation.",
       durationMs: 0,
     };
   }
 
-  for (const dependency of Object.keys(project.dependencies)) {
-    if (!ALLOWED_DEPENDENCIES.has(dependency)) {
-      return {
-        status: "failed",
-        errorCode: "UNSAFE_DEPENDENCY",
-        errorMessage: `Dependency "${dependency}" is not allowlisted.`,
-        durationMs: 0,
-      };
-    }
-  }
+  const result = runStaticProjectValidation(state.generatedProject, state.generationPlan);
+  const output = {
+    staticValidation: result,
+  };
 
-  for (const file of project.files) {
-    if (file.path.includes("..") || file.path.startsWith("/")) {
-      return {
-        status: "failed",
-        errorCode: "UNSAFE_PATH",
-        errorMessage: `Unsafe file path detected: ${file.path}`,
-        durationMs: 0,
-      };
-    }
+  if (!result.valid) {
+    const firstError = result.errors[0];
+    const errorCode =
+      firstError?.code === "UNSAFE_DEPENDENCY"
+        ? ErrorCode.UNSAFE_DEPENDENCY
+        : firstError?.code === "PLAN_PROJECT_MISMATCH"
+          ? ErrorCode.PLAN_PROJECT_MISMATCH
+          : firstError?.code === "UNSAFE_FILE_PATH"
+            ? ErrorCode.UNSAFE_FILE_PATH
+            : firstError?.code === "EVAL" ||
+                firstError?.code === "NEW_FUNCTION" ||
+                firstError?.code === "DANGEROUSLY_SET_INNER_HTML"
+              ? ErrorCode.UNSAFE_SOURCE_CODE
+              : ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID;
+
+    return {
+      status: "failed",
+      errorCode,
+      errorMessage: firstError?.message ?? "Generated project failed static validation.",
+      output,
+      durationMs: 0,
+    } satisfies StageResult<Partial<PipelineState>>;
   }
 
   return {
     status: "completed",
+    output,
     durationMs: 0,
-  } satisfies StageResult;
+  } satisfies StageResult<Partial<PipelineState>>;
 };

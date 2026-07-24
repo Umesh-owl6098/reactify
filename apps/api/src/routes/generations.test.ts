@@ -3,6 +3,7 @@ import { generationPlanFixture } from "@reactify/test-utils";
 import {
   createTestImage,
   createTestServer,
+  completeSandboxValidation,
   waitForGenerationStatus,
 } from "../test/helpers.js";
 
@@ -14,6 +15,20 @@ async function waitForPlanning(app: Awaited<ReturnType<typeof createTestServer>>
     });
     return response.json() as { status: string; awaitingPlanConfirmation?: boolean };
   }, "Planning");
+}
+
+async function confirmPlanAndCompleteSandbox(
+  app: Awaited<ReturnType<typeof createTestServer>>["app"],
+  pipeline: Awaited<ReturnType<typeof createTestServer>>["pipeline"],
+  generationId: string,
+) {
+  await app.inject({
+    method: "POST",
+    url: `/api/v1/generations/${generationId}/confirm-plan`,
+    payload: { plan: generationPlanFixture },
+  });
+
+  await completeSandboxValidation(app, generationId, pipeline);
 }
 
 describe("generation routes", () => {
@@ -79,22 +94,7 @@ describe("generation routes", () => {
     const generationId = createResponse.json().generationId as string;
     await waitForPlanning(app, generationId);
 
-    const confirmResponse = await app.inject({
-      method: "POST",
-      url: `/api/v1/generations/${generationId}/confirm-plan`,
-      payload: { plan: generationPlanFixture },
-    });
-
-    expect(confirmResponse.statusCode).toBe(200);
-    expect(confirmResponse.json().status).toBe("Generating");
-
-    await waitForGenerationStatus(async () => {
-      const response = await app.inject({
-        method: "GET",
-        url: `/api/v1/generations/${generationId}`,
-      });
-      return response.json() as { status: string };
-    }, "Ready");
+    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
 
     const statusResponse = await app.inject({
       method: "GET",
@@ -142,13 +142,7 @@ describe("generation routes", () => {
       payload: { plan: generationPlanFixture },
     });
 
-    await waitForGenerationStatus(async () => {
-      const response = await app.inject({
-        method: "GET",
-        url: `/api/v1/generations/${generationId}`,
-      });
-      return response.json() as { status: string };
-    }, "Ready");
+    await completeSandboxValidation(app, generationId, pipeline);
 
     const duplicate = await app.inject({
       method: "POST",
@@ -240,5 +234,89 @@ describe("generation routes", () => {
     });
 
     expect(response.json().status).toBe("Cancelled");
+  });
+
+  it("returns generated project metadata without file contents when ready", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/generations",
+      payload: { imageId },
+    });
+
+    const generationId = createResponse.json().generationId as string;
+    await waitForPlanning(app, generationId);
+
+    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+
+    const statusResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/generations/${generationId}`,
+    });
+
+    const body = statusResponse.json();
+    expect(body.outputs.generatedProject.files[0]).toMatchObject({
+      path: expect.any(String),
+      sizeBytes: expect.any(Number),
+    });
+    expect(body.outputs.generatedProject.files[0].content).toBeUndefined();
+    expect(body.project).toMatchObject({ provider: "mock" });
+    expect(JSON.stringify(body)).not.toMatch(/ANTHROPIC_API_KEY|Generate a React project/);
+  });
+
+  it("lists generated files and returns selected file content", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/generations",
+      payload: { imageId },
+    });
+
+    const generationId = createResponse.json().generationId as string;
+    await waitForPlanning(app, generationId);
+
+    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/files`,
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().files.length).toBeGreaterThan(0);
+    expect(listResponse.json().files[0].content).toBeUndefined();
+
+    const contentResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("src/App.tsx")}`,
+    });
+
+    expect(contentResponse.statusCode).toBe(200);
+    expect(contentResponse.json().content).toContain("HeroSection");
+  });
+
+  it("rejects traversal attempts and missing files on file content endpoint", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/generations",
+      payload: { imageId },
+    });
+
+    const generationId = createResponse.json().generationId as string;
+    await waitForPlanning(app, generationId);
+
+    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+
+    const traversal = await app.inject({
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("../secret.ts")}`,
+    });
+
+    expect(traversal.statusCode).toBe(422);
+
+    const missing = await app.inject({
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("src/DoesNotExist.tsx")}`,
+    });
+
+    expect(missing.statusCode).toBe(404);
   });
 });

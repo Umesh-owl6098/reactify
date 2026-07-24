@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { AnalysisMetadataSchema } from "./analysis-metadata.js";
 import { DesignAnalysisV1Schema } from "./design-analysis.js";
-import { GeneratedProjectV1Schema } from "./generated-project.js";
+import { GeneratedProjectSummarySchema } from "./generated-project-api.js";
 import { GenerationPlanV1Schema } from "./generation-plan.js";
 import { PlanMetadataSchema } from "./plan-metadata.js";
+import { ProjectMetadataSchema } from "./project-metadata.js";
 import { PipelineStageLogEntrySchema, PipelineStageNameSchema } from "./pipeline.js";
+import { SchemaValidationResultSchema, StaticValidationResultSchema } from "./validation-results.js";
+import { SandboxValidationSnapshotSchema } from "./sandbox-validation.js";
 
 export const GenerationUserStatusSchema = z.enum([
   "Queued",
@@ -15,6 +18,7 @@ export const GenerationUserStatusSchema = z.enum([
   "Validating",
   "Compiling",
   "Repairing",
+  "RepairRequired",
   "Ready",
   "Failed",
   "Cancelled",
@@ -29,7 +33,7 @@ export const GenerationErrorSchema = z.object({
 export const GenerationOutputsSchema = z.object({
   designAnalysis: DesignAnalysisV1Schema.nullable(),
   generationPlan: GenerationPlanV1Schema.nullable(),
-  generatedProject: GeneratedProjectV1Schema.nullable(),
+  generatedProject: GeneratedProjectSummarySchema.nullable(),
 });
 
 export const GenerationDurationsSchema = z.object({
@@ -72,9 +76,15 @@ export const GenerationStatusResponseSchema = z.object({
   outputs: GenerationOutputsSchema,
   analysis: AnalysisMetadataSchema.nullable(),
   plan: PlanMetadataSchema.nullable(),
+  project: ProjectMetadataSchema.nullable(),
+  schemaValidation: SchemaValidationResultSchema.nullable(),
+  staticValidation: StaticValidationResultSchema.nullable(),
+  sandboxValidation: SandboxValidationSnapshotSchema.nullable(),
+  projectHash: z.string().nullable(),
   editedByUser: z.boolean(),
   confirmedAt: z.string().datetime().nullable(),
   awaitingPlanConfirmation: z.boolean(),
+  awaitingSandboxValidation: z.boolean(),
   featureFlags: GenerationFeatureFlagsSchema,
   errors: z.array(GenerationErrorSchema),
   durations: GenerationDurationsSchema,

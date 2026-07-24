@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
 import { MockAIProvider, generationPlanFixture } from "@reactify/test-utils";
+import {
+  createSuccessfulSandboxValidationReport,
+  waitForAwaitingSandboxValidation,
+} from "../test/helpers.js";
 import { PipelineRunner } from "./PipelineRunner.js";
 import { StageRegistry, createDefaultRegistry } from "./registry.js";
 import { createStageExecutors } from "./stages/index.js";
@@ -66,15 +70,29 @@ describe("PipelineRunner", () => {
     expect(record?.stages.some((stage) => stage.stage === "react_project_generation")).toBe(false);
   });
 
-  it("resumes after plan confirmation and completes mocked later stages", async () => {
+  it("resumes after plan confirmation and completes browser-assisted sandbox validation", async () => {
     const generationId = store.create({ imageId }).id;
     await runner.run(generationId);
 
     const confirmResult = runner.confirmPlan(generationId, generationPlanFixture, false);
     expect(confirmResult.ok).toBe(true);
 
+    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
+      const record = store.get(generationId);
+      return {
+        awaitingSandboxValidation: record?.awaitingSandboxValidation,
+        projectHash: record?.projectHash,
+      };
+    });
+
+    const submitResult = await runner.submitSandboxValidation(
+      generationId,
+      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
+    );
+    expect(submitResult.ok).toBe(true);
+
     const started = Date.now();
-    while (Date.now() - started < 3000) {
+    while (Date.now() - started < 5000) {
       const record = store.get(generationId);
       if (record?.status === "Ready") {
         break;
@@ -87,6 +105,8 @@ describe("PipelineRunner", () => {
     expect(record?.confirmedAt).not.toBeNull();
     expect(record?.editedByUser).toBe(false);
     expect(record?.outputs.generatedProject).not.toBeNull();
+    expect(record?.sandboxValidation?.compilation.success).toBe(true);
+    expect(record?.sandboxValidation?.runtime.success).toBe(true);
   });
 
   it("does not start duplicate resumes on repeated confirmation", async () => {
@@ -95,8 +115,21 @@ describe("PipelineRunner", () => {
 
     expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
 
+    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
+      const record = store.get(generationId);
+      return {
+        awaitingSandboxValidation: record?.awaitingSandboxValidation,
+        projectHash: record?.projectHash,
+      };
+    });
+
+    runner.submitSandboxValidation(
+      generationId,
+      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
+    );
+
     const started = Date.now();
-    while (Date.now() - started < 3000) {
+    while (Date.now() - started < 5000) {
       const record = store.get(generationId);
       if (record?.status === "Ready") {
         break;

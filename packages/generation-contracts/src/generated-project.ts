@@ -18,6 +18,15 @@ export const ComponentMetadataSchema = z.object({
   accessibilityNotes: z.string(),
 });
 
+export const GeneratedComponentRecordSchema = z.object({
+  name: z.string(),
+  filePath: z.string(),
+  exported: z.boolean(),
+  props: z.array(PropDefinitionSchema),
+  dependencies: z.array(z.string()),
+  accessibilityNotes: z.string(),
+});
+
 export const GeneratedFileSchema = z.object({
   path: z
     .string()
@@ -41,9 +50,11 @@ export const GeneratedProjectV1Schema = z.object({
   devDependencies: z.record(z.string()).optional(),
   files: z.array(GeneratedFileSchema).min(1),
   entryFile: z.string(),
+  components: z.array(GeneratedComponentRecordSchema),
   warnings: z.array(z.string()),
 });
 
 export type GeneratedFile = z.infer<typeof GeneratedFileSchema>;
 export type GeneratedProjectV1 = z.infer<typeof GeneratedProjectV1Schema>;
 export type ComponentMetadata = z.infer<typeof ComponentMetadataSchema>;
+export type GeneratedComponentRecord = z.infer<typeof GeneratedComponentRecordSchema>;

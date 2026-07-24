@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { APP_VERSION } from "@reactify/shared";
 import { GenerationPlanReview } from "../features/plan/GenerationPlanReview";
+import { GeneratedProjectView } from "../features/generated-project/GeneratedProjectView";
 import { PipelineStatus } from "../features/generation/PipelineStatus";
 import { useGeneration } from "../features/generation/useGeneration";
-import { isAwaitingPlanReview } from "../lib/generation-api";
+import { isAwaitingPlanReview, shouldShowGeneratedProject } from "../lib/generation-api";
 import { ImagePreview } from "../features/upload/ImagePreview";
 import { UploadZone } from "../features/upload/UploadZone";
 import { useUploadStore } from "../features/upload/uploadStore";
@@ -19,10 +20,11 @@ export function App() {
   }, [upload?.imageId, beginGeneration]);
 
   const awaitingPlanReview = status ? isAwaitingPlanReview(status) : false;
+  const showGeneratedProject = status ? shouldShowGeneratedProject(status) : false;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-50">
-      <main className="mx-auto flex min-h-screen max-w-4xl flex-col items-center px-6 py-16">
+      <main className="mx-auto flex min-h-screen max-w-7xl flex-col items-center px-6 py-16">
         <div className="mb-12 text-center">
           <p className="mb-4 inline-flex rounded-full border border-indigo-400/30 bg-indigo-500/10 px-4 py-1 text-sm font-medium text-indigo-200">
             Foundation v{APP_VERSION}
@@ -38,7 +40,7 @@ export function App() {
         <div className="mt-8 w-full max-w-2xl">
           <ImagePreview />
         </div>
-        <div className="mt-10 w-full max-w-2xl">
+        <div className="mt-10 w-full max-w-7xl">
           {awaitingPlanReview && status ? (
             <GenerationPlanReview
               status={status}
@@ -46,6 +48,14 @@ export function App() {
                 void resumePolling();
               }}
               onCancelled={reset}
+            />
+          ) : null}
+          {showGeneratedProject && status ? (
+            <GeneratedProjectView
+              status={status}
+              onValidationReportSubmitted={() => {
+                void resumePolling();
+              }}
             />
           ) : null}
           <PipelineStatus status={status} isPolling={isPolling} error={error} />

@@ -31,11 +31,46 @@ export {
   type GenerationUserStatus,
 } from "./generation-api.js";
 export {
+  GeneratedFileListResponseSchema,
+  GeneratedFileContentResponseSchema,
+  GeneratedFileMetadataSchema,
+  GeneratedProjectSummarySchema,
+  type GeneratedFileContentResponse,
+  type GeneratedFileListResponse,
+  type GeneratedFileMetadata,
+  type GeneratedProjectSummary,
+} from "./generated-project-api.js";
+export { ProjectMetadataSchema, type ProjectMetadata } from "./project-metadata.js";
+export {
+  DiagnosticSchema,
+  SandboxCompilationResultSchema,
+  SandboxRuntimeResultSchema,
+  SandboxValidationRequestSchema,
+  SandboxValidationResponseSchema,
+  SandboxValidationSnapshotSchema,
+  type Diagnostic,
+  type SandboxCompilationResult,
+  type SandboxRuntimeResult,
+  type SandboxValidationRequest,
+  type SandboxValidationResponse,
+  type SandboxValidationSnapshot,
+} from "./sandbox-validation.js";
+export {
+  SchemaValidationResultSchema,
+  StaticValidationResultSchema,
+  ValidationIssueSchema,
+  type SchemaValidationResult,
+  type StaticValidationResult,
+  type ValidationIssue,
+} from "./validation-results.js";
+export {
+  GeneratedComponentRecordSchema,
   GeneratedFileSchema,
   GeneratedProjectV1Schema,
   ComponentMetadataSchema,
   PropDefinitionSchema,
   type ComponentMetadata,
+  type GeneratedComponentRecord,
   type GeneratedFile,
   type GeneratedProjectV1,
 } from "./generated-project.js";

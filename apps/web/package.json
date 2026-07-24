@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.19.8",
     "@reactify/generation-contracts": "workspace:*",
     "@reactify/shared": "workspace:*",
     "@reactify/ui": "workspace:*",

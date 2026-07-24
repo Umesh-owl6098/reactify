@@ -37,8 +37,9 @@ const readyStatus: GenerationStatusResponse = {
       projectName: "MockLandingPage",
       summary: "Mock project",
       dependencies: { react: "^18.3.1" },
-      files: [{ path: "src/App.tsx", language: "tsx", content: "export {}", purpose: "component" }],
+      files: [{ path: "src/App.tsx", language: "tsx", purpose: "component", sizeBytes: 12 }],
       entryFile: "src/App.tsx",
+      components: [],
       warnings: [],
     },
   },
@@ -55,9 +56,15 @@ const readyStatus: GenerationStatusResponse = {
     generatedAt: "2026-01-01T00:00:00.000Z",
   },
   plan: null,
+  project: null,
+  schemaValidation: null,
+  staticValidation: null,
+  sandboxValidation: null,
+  projectHash: null,
   editedByUser: false,
   confirmedAt: null,
   awaitingPlanConfirmation: false,
+  awaitingSandboxValidation: false,
   featureFlags: {
     enableGenerationPlanEditing: true,
   },
@@ -65,12 +72,12 @@ const readyStatus: GenerationStatusResponse = {
 };
 
 describe("PipelineStatus", () => {
-  it("shows mocked output summaries when the pipeline is ready", () => {
+  it("shows completion messaging when the pipeline is ready", () => {
     render(<PipelineStatus status={readyStatus} isPolling={false} error={null} />);
     expect(screen.getByRole("heading", { name: "Generation pipeline" })).toBeInTheDocument();
     expect(screen.getByText("Design analysis completed")).toBeInTheDocument();
     expect(screen.getByText("Header > Hero")).toBeInTheDocument();
     expect(screen.getByText(/mock-model-v1/)).toBeInTheDocument();
-    expect(screen.getByText("Generated Project (mock)")).toBeInTheDocument();
+    expect(screen.getByText("Generation complete")).toBeInTheDocument();
   });
 });

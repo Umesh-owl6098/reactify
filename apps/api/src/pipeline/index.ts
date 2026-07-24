@@ -15,6 +15,13 @@ export interface CreatePipelineServicesOptions {
   loadPrompt?: LoadPromptFn;
 }
 
+/**
+ * Pipeline services coordinate the generation workflow.
+ *
+ * Browser-assisted sandbox validation: after static validation, the pipeline
+ * pauses at sandbox_compilation and waits for the web client to compile the
+ * generated project in Sandpack and POST results to the sandbox-validation API.
+ */
 export function createPipelineServices(
   imageStorage: ImageStorage,
   options: CreatePipelineServicesOptions,

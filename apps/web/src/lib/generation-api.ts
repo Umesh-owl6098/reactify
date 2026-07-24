@@ -3,15 +3,20 @@ import {
   ConfirmPlanRequestSchema,
   ConfirmPlanResponseSchema,
   CreateGenerationResponseSchema,
+  GeneratedFileContentResponseSchema,
+  GeneratedFileListResponseSchema,
   GenerationPlanV1Schema,
   GenerationStatusResponseSchema,
+  SandboxValidationRequestSchema,
+  SandboxValidationResponseSchema,
   type GenerationPlanV1,
   type GenerationStatusResponse,
+  type SandboxValidationRequest,
 } from "@reactify/generation-contracts";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
-const TERMINAL_STATUSES = new Set(["Ready", "Failed", "Cancelled"]);
+const TERMINAL_STATUSES = new Set(["Ready", "Failed", "Cancelled", "RepairRequired"]);
 
 export function isTerminalGenerationStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -19,6 +24,32 @@ export function isTerminalGenerationStatus(status: string): boolean {
 
 export function isAwaitingPlanReview(status: GenerationStatusResponse): boolean {
   return status.status === "Planning" && status.awaitingPlanConfirmation;
+}
+
+export function isAwaitingSandboxValidation(status: GenerationStatusResponse): boolean {
+  return status.awaitingSandboxValidation && Boolean(status.projectHash);
+}
+
+export async function submitSandboxValidation(
+  generationId: string,
+  report: SandboxValidationRequest,
+): Promise<string> {
+  const payload = SandboxValidationRequestSchema.parse(report);
+
+  const response = await fetch(`${API_BASE}/api/v1/generations/${generationId}/sandbox-validation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to submit sandbox validation report.");
+  }
+
+  const body = SandboxValidationResponseSchema.parse(await response.json());
+  return body.status;
 }
 
 export async function startGeneration(imageId: string): Promise<string> {
@@ -82,4 +113,32 @@ export async function cancelGeneration(generationId: string): Promise<void> {
   }
 
   CancelGenerationResponseSchema.parse(await response.json());
+}
+
+export async function fetchGeneratedProjectFiles(generationId: string) {
+  const response = await fetch(`${API_BASE}/api/v1/generations/${generationId}/files`);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch generated project files.");
+  }
+
+  return GeneratedFileListResponseSchema.parse(await response.json());
+}
+
+export async function fetchGeneratedFileContent(generationId: string, path: string) {
+  const query = new URLSearchParams({ path });
+  const response = await fetch(
+    `${API_BASE}/api/v1/generations/${generationId}/files/content?${query.toString()}`,
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch generated file content.");
+  }
+
+  return GeneratedFileContentResponseSchema.parse(await response.json());
+}
+
+export function shouldShowGeneratedProject(status: GenerationStatusResponse): boolean {
+  return Boolean(status.outputs.generatedProject) &&
+    ["Generating", "Validating", "Compiling", "Repairing", "RepairRequired", "Ready", "Failed"].includes(status.status);
 }

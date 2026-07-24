@@ -7,6 +7,7 @@ import type {
 import {
   designAnalysisFixture,
   generationPlanFixture,
+  generatedProjectFixture,
 } from "./fixtures/index.js";
 
 export interface MockAIProviderOptions {
@@ -42,8 +43,11 @@ export class MockAIProvider implements AIProvider {
     } else if (this.callCount === 0) {
       rawText = JSON.stringify(designAnalysisFixture);
       this.callCount += 1;
-    } else {
+    } else if (this.callCount === 1) {
       rawText = JSON.stringify(generationPlanFixture);
+      this.callCount += 1;
+    } else {
+      rawText = JSON.stringify(generatedProjectFixture);
       this.callCount += 1;
     }
 
@@ -68,6 +72,13 @@ export function createDesignAnalysisFixtureJson(overrides: Record<string, unknow
 export function createGenerationPlanFixtureJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     ...generationPlanFixture,
+    ...overrides,
+  });
+}
+
+export function createGeneratedProjectFixtureJson(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    ...generatedProjectFixture,
     ...overrides,
   });
 }

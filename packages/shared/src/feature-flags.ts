@@ -24,6 +24,7 @@ export const USER_VISIBLE_STATUSES: GenerationUserStatus[] = [
   "Validating",
   "Compiling",
   "Repairing",
+  "RepairRequired",
   "Ready",
   "Failed",
   "Cancelled",

@@ -10,13 +10,22 @@ import {
   type AIProvider,
 } from "@reactify/shared";
 import type { ImageStorage } from "../lib/imageStorage.js";
+import { validateSandboxValidationReport } from "../lib/sandboxValidationReport.js";
+import { computeProjectHash } from "../lib/projectHash.js";
 import { NoopPipelineLogger } from "./logger.js";
 import type { StageRegistry } from "./registry.js";
 import type { GenerationStore } from "./store.js";
 import type { PipelineState } from "./types.js";
 
-function shouldSkipStage(stage: PipelineStageName, flags: FeatureFlags): boolean {
-  if (stage === "automatic_repair" && !flags.enableRepair) {
+function shouldSkipStage(stage: PipelineStageName, flags: FeatureFlags, state: PipelineState): boolean {
+  if (stage === "automatic_repair" && !flags.enableRepair && !state.repairRequired) {
+    return true;
+  }
+
+  if (
+    (stage === "sandbox_compilation" || stage === "runtime_validation") &&
+    state.sandboxValidation
+  ) {
     return true;
   }
 
@@ -81,8 +90,70 @@ export class PipelineRunner {
     return { ok: true };
   }
 
+  async submitSandboxValidation(
+    generationId: string,
+    body: unknown,
+  ): Promise<{ ok: true; duplicate: boolean } | { ok: false; reason: string }> {
+    const record = this.store.get(generationId);
+    if (!record) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (!record.awaitingSandboxValidation && record.validationReportFingerprint) {
+      const validation = validateSandboxValidationReport(body, generationId);
+      if (!validation.ok) {
+        return { ok: false, reason: validation.errorCode === ErrorCode.REPORT_TOO_LARGE ? "too_large" : "invalid_report" };
+      }
+
+      if (record.validationReportFingerprint === validation.report.reportFingerprint) {
+        return { ok: true, duplicate: true };
+      }
+
+      return { ok: false, reason: "duplicate_conflict" };
+    }
+
+    if (!record.awaitingSandboxValidation) {
+      return { ok: false, reason: "invalid_state" };
+    }
+
+    const validation = validateSandboxValidationReport(body, generationId);
+    if (!validation.ok) {
+      return { ok: false, reason: validation.errorCode === ErrorCode.REPORT_TOO_LARGE ? "too_large" : "invalid_report" };
+    }
+
+    const expectedProjectHash =
+      record.projectHash ??
+      (record.outputs.generatedProject ? computeProjectHash(record.outputs.generatedProject) : null);
+
+    if (!expectedProjectHash) {
+      return { ok: false, reason: "invalid_state" };
+    }
+
+    const submitResult = this.store.submitSandboxValidation({
+      generationId,
+      report: validation.report.request,
+      reportFingerprint: validation.report.reportFingerprint,
+      expectedProjectHash,
+    });
+
+    if (!submitResult.ok) {
+      return { ok: false, reason: submitResult.reason };
+    }
+
+    if (submitResult.duplicate) {
+      return { ok: true, duplicate: true };
+    }
+
+    await this.resumeFromSandbox(generationId);
+    return { ok: true, duplicate: false };
+  }
+
   async resume(generationId: string): Promise<void> {
     await this.run(generationId, "react_project_generation");
+  }
+
+  async resumeFromSandbox(generationId: string): Promise<void> {
+    await this.run(generationId, "automatic_repair");
   }
 
   async run(generationId: string, fromStage?: PipelineStageName): Promise<void> {
@@ -99,18 +170,28 @@ export class PipelineRunner {
       return;
     }
 
+    if (record.awaitingSandboxValidation && !fromStage) {
+      return;
+    }
+
     this.runningGenerations.add(generationId);
 
     try {
-      let state: PipelineState =
-        record.pipelineState ?? {
-          imageId: record.imageId,
-          designAnalysis: record.outputs.designAnalysis ?? undefined,
-          generationPlan: record.outputs.generationPlan ?? undefined,
-          planConfirmed: record.confirmedAt ? true : undefined,
-          analysisMetadata: record.analysis ?? undefined,
-          planMetadata: record.plan ?? undefined,
-        };
+      const persistedState = record.pipelineState;
+      let state: PipelineState = persistedState ?? {
+        imageId: record.imageId,
+        designAnalysis: record.outputs.designAnalysis ?? undefined,
+        generationPlan: record.outputs.generationPlan ?? undefined,
+        generatedProject: record.outputs.generatedProject ?? undefined,
+        planConfirmed: record.confirmedAt ? true : undefined,
+        analysisMetadata: record.analysis ?? undefined,
+        planMetadata: record.plan ?? undefined,
+        projectMetadata: record.project ?? undefined,
+        schemaValidation: record.schemaValidation ?? undefined,
+        staticValidation: record.staticValidation ?? undefined,
+        sandboxValidation: record.sandboxValidation ?? undefined,
+        projectHash: record.projectHash ?? undefined,
+      };
 
       const logger = new NoopPipelineLogger();
       const context: PipelineContext = {
@@ -139,7 +220,7 @@ export class PipelineRunner {
           return;
         }
 
-        if (shouldSkipStage(stageName, this.flags)) {
+        if (shouldSkipStage(stageName, this.flags, state)) {
           this.store.markStageRunning(current, stageName);
           this.store.markStageFinished(current, stageName, {
             status: "skipped",
@@ -173,10 +254,31 @@ export class PipelineRunner {
         );
 
         if (result.status === "paused") {
-          this.store.markStageAwaitingConfirmation(current, stageName);
+          if (stageName === "generation_plan_review") {
+            this.store.markStageAwaitingConfirmation(current, stageName);
+            this.store.applyStateOutputs(current, state);
+            this.store.pauseForPlanReview(current, state);
+            return;
+          }
+
+          if (stageName === "sandbox_compilation") {
+            if (result.output) {
+              state = mergeState(state, result.output);
+            }
+            this.store.markStageAwaitingClient(current, stageName);
+            this.store.applyStateOutputs(current, state);
+            this.store.pauseForSandboxValidation(current, state);
+            return;
+          }
+
+          if (stageName === "runtime_validation") {
+            return;
+          }
+        }
+
+        if (result.output) {
+          state = mergeState(state, result.output);
           this.store.applyStateOutputs(current, state);
-          this.store.pauseForPlanReview(current, state);
-          return;
         }
 
         this.store.markStageFinished(current, stageName, {
@@ -202,9 +304,13 @@ export class PipelineRunner {
           return;
         }
 
-        if (result.status === "completed" && result.output) {
-          state = mergeState(state, result.output);
-          this.store.applyStateOutputs(current, state);
+        if (stageName === "automatic_repair" && state.repairRequired) {
+          current.status = "RepairRequired";
+          current.activeStage = null;
+          current.pipelineState = null;
+          current.sandboxResumeInProgress = false;
+          current.updatedAt = new Date().toISOString();
+          return;
         }
       }
 
@@ -213,17 +319,30 @@ export class PipelineRunner {
         return;
       }
 
-      finished.status = "Ready";
+      if (state.repairRequired) {
+        finished.status = "RepairRequired";
+      } else {
+        finished.status = "Ready";
+      }
       finished.activeStage = null;
       finished.awaitingPlanConfirmation = false;
+      finished.awaitingSandboxValidation = false;
       finished.pipelineState = null;
       finished.resumeInProgress = false;
+      finished.sandboxResumeInProgress = false;
       finished.updatedAt = new Date().toISOString();
     } finally {
       this.runningGenerations.delete(generationId);
       const finished = this.store.get(generationId);
-      if (finished?.resumeInProgress && finished.status !== "Planning") {
+      if (
+        finished?.resumeInProgress &&
+        finished.status !== "Planning" &&
+        !finished.awaitingSandboxValidation
+      ) {
         this.store.completeResume(finished);
+      }
+      if (finished?.sandboxResumeInProgress && finished.status === "RepairRequired") {
+        finished.sandboxResumeInProgress = false;
       }
     }
   }
