@@ -81,6 +81,7 @@ describe("PipelineRunner", () => {
 
     const confirmResult = runner.confirmPlan(generationId, generationPlanFixture, false);
     expect(confirmResult.ok).toBe(true);
+    await runner.resume(generationId);
 
     const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
       const record = store.get(generationId);
@@ -95,6 +96,9 @@ describe("PipelineRunner", () => {
       createSuccessfulSandboxValidationReport({ generationId, projectHash }),
     );
     expect(submitResult.ok).toBe(true);
+    if (submitResult.shouldResume) {
+      await runner.resumeFromSandbox(generationId);
+    }
 
     const started = Date.now();
     while (Date.now() - started < 5000) {
@@ -119,6 +123,7 @@ describe("PipelineRunner", () => {
     await runner.run(generationId);
 
     expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
+    await runner.resume(generationId);
 
     const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
       const record = store.get(generationId);
@@ -132,6 +137,7 @@ describe("PipelineRunner", () => {
       generationId,
       createSuccessfulSandboxValidationReport({ generationId, projectHash }),
     );
+    await runner.resumeFromSandbox(generationId);
 
     const started = Date.now();
     while (Date.now() - started < 5000) {

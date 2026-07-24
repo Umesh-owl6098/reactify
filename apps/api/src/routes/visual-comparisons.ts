@@ -9,9 +9,12 @@ import {
   VisualCorrectionRequestSchema,
   type VisualComparisonArtifactType,
 } from "@reactify/generation-contracts";
-import { ErrorCode, type APIErrorBody } from "@reactify/shared";
+import { ErrorCode, JobAcceptedResponseSchema, type APIErrorBody } from "@reactify/shared";
 import type { VisualComparisonService } from "../lib/visual-comparison/VisualComparisonService.js";
 import type { GenerationStore } from "../pipeline/store.js";
+import type { AuthorizationService } from "../auth/AuthorizationService.js";
+import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import type { JobService } from "../jobs/job-service.js";
 
 function sendError(
   reply: FastifyReply,
@@ -41,12 +44,14 @@ export async function registerVisualComparisonRoutes(
   app: FastifyInstance,
   store: GenerationStore,
   visualComparisonService: VisualComparisonService,
+  authorization: AuthorizationService,
+  jobService?: JobService,
 ): Promise<void> {
   app.post("/api/v1/generations/:id/visual-comparisons", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const parsed = VisualComparisonRequestSchema.safeParse(request.body ?? {});
@@ -71,9 +76,9 @@ export async function registerVisualComparisonRoutes(
 
   app.post("/api/v1/generations/:id/visual-comparisons/:comparisonId/screenshot", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const parsed = PreviewScreenshotSubmissionSchema.safeParse(request.body ?? {});
@@ -92,9 +97,9 @@ export async function registerVisualComparisonRoutes(
 
   app.get("/api/v1/generations/:id/visual-comparisons", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     return reply.send(
@@ -107,9 +112,9 @@ export async function registerVisualComparisonRoutes(
 
   app.get("/api/v1/generations/:id/visual-comparisons/:comparisonId", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const comparison = visualComparisonService.getComparison(record, comparisonId);
@@ -136,9 +141,9 @@ export async function registerVisualComparisonRoutes(
       return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Invalid artifact type.");
     }
 
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const artifact = await visualComparisonService.readArtifact(
@@ -158,14 +163,44 @@ export async function registerVisualComparisonRoutes(
 
   app.post("/api/v1/generations/:id/visual-comparisons/:comparisonId/correct", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const parsed = VisualCorrectionRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return sendError(reply, request, 422, ErrorCode.INVALID_GENERATION_STATE, "Invalid visual correction request body.");
+    }
+
+    if (jobService) {
+      if (!record.activeVersionId) {
+        return sendError(reply, request, 409, ErrorCode.ACTIVE_VERSION_NOT_FOUND, "Active project version not found.");
+      }
+
+      record.visualCorrectionInProgress = true;
+      const comparison = record.visualComparisons.find((entry) => entry.comparisonId === comparisonId);
+      if (comparison) {
+        comparison.status = "correcting";
+      }
+
+      const accepted = await jobService.enqueue({
+        generationId: id,
+        ownerId: request.auth!.user.id,
+        jobType: "visual_correction",
+        payload: {
+          generationId: id,
+          comparisonId,
+          versionId: record.activeVersionId,
+          expectedProjectHash: parsed.data.expectedProjectHash,
+        },
+        idempotencyKey: `visual-correction-${comparisonId}-${parsed.data.expectedProjectHash}`,
+      });
+
+      void store.persist(record);
+      return reply.status(202).send({
+        job: JobAcceptedResponseSchema.parse(accepted.job),
+      });
     }
 
     const result = await visualComparisonService.applyCorrection(record, comparisonId, parsed.data);

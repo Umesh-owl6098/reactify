@@ -66,6 +66,7 @@ export interface GenerationErrorRecord {
 
 export interface GenerationRecord {
   id: string;
+  ownerId: string;
   imageId: string;
   projectId: string;
   status: GenerationUserStatus;

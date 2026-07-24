@@ -195,6 +195,7 @@ export function mapLoadedGenerationToRecord(row: LoadedGeneration): GenerationRe
 
   return {
     id: row.id,
+    ownerId: row.ownerId,
     imageId: row.sourceImageId,
     projectId: row.projectId,
     status: row.status as GenerationUserStatus,
@@ -261,6 +262,7 @@ export function mapLoadedGenerationToRecord(row: LoadedGeneration): GenerationRe
 export function mapRecordToGenerationData(record: GenerationRecord): Prisma.GenerationUncheckedUpdateInput {
   return {
     id: record.id,
+    ownerId: record.ownerId,
     projectId: record.projectId,
     status: record.status,
     currentStage: record.activeStage,

@@ -7,8 +7,65 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String
+  normalizedEmail String    @unique
+  passwordHash    String
+  displayName     String
+  status          String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastSignedInAt  DateTime?
+  deletedAt       DateTime?
+
+  sessions            Session[]
+  authenticationEvents AuthenticationEvent[]
+  generations         Generation[]
+  uploadedImages      UploadedImage[]
+  usagePolicy         UserUsagePolicy?
+  usageRecords        AiUsageRecord[]
+  usageReservations   UsageReservation[]
+  usagePeriodAggregates UsagePeriodAggregate[]
+
+  @@index([status])
+}
+
+model Session {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  tokenHash    String    @unique
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  userAgentHash String?
+  ipHash       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuthenticationEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  eventType String
+  success   Boolean
+  safeReason String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
 model UploadedImage {
   id               String   @id @default(uuid()) @db.Uuid
+  ownerId          String   @db.Uuid
   storageKey       String   @unique
   originalFilename String?
   mimeType         String
@@ -18,13 +75,16 @@ model UploadedImage {
   contentHash      String?
   createdAt        DateTime @default(now())
 
+  owner       User         @relation(fields: [ownerId], references: [id])
   generations Generation[]
 
   @@index([createdAt])
+  @@index([ownerId])
 }
 
 model Generation {
   id                          String    @id @default(uuid()) @db.Uuid
+  ownerId                     String    @db.Uuid
   projectId                   String    @db.Uuid
   status                      String
   currentStage                String?
@@ -76,6 +136,7 @@ model Generation {
   updatedAt                   DateTime  @updatedAt
 
   sourceImage         UploadedImage          @relation(fields: [sourceImageId], references: [id])
+  owner               User                   @relation(fields: [ownerId], references: [id])
   stages              PipelineStageRecord[]
   designAnalyses      DesignAnalysisRecord[]
   plans               GenerationPlanRecord[]
@@ -85,9 +146,12 @@ model Generation {
   visualComparisons   VisualComparison[]
   exports             ProjectExport[]
   idempotencyRecords  IdempotencyRecord[]
+  backgroundJobs      BackgroundJob[]
+  aiUsageRecords      AiUsageRecord[]
 
   @@index([status])
   @@index([deletedAt])
+  @@index([ownerId])
   @@index([createdAt])
   @@index([updatedAt])
   @@index([latestProjectHash])
@@ -352,4 +416,175 @@ model IdempotencyRecord {
 
   @@unique([scope, idempotencyKey])
   @@index([expiresAt])
+}
+
+model BackgroundJob {
+  id              String    @id @default(uuid()) @db.Uuid
+  generationId    String    @db.Uuid
+  ownerId         String    @db.Uuid
+  jobType         String
+  status          String
+  priority        Int       @default(0)
+  payload         Json      @default("{}")
+  result          Json?
+  progress        Int       @default(0)
+  progressMessage String?
+  attemptNumber   Int       @default(0)
+  maxAttempts     Int       @default(3)
+  availableAt     DateTime  @default(now())
+  lockedAt        DateTime?
+  lockedBy        String?
+  lockExpiresAt   DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  failedAt        DateTime?
+  cancelledAt     DateTime?
+  lastHeartbeatAt DateTime?
+  idempotencyKey  String?
+  requestHash     String?
+  failureCode     String?
+  failureMessage  String?
+  parentJobId     String?   @db.Uuid
+  correlationId   String    @default(uuid()) @db.Uuid
+  cancellationRequested Boolean @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  generation Generation  @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  parentJob  BackgroundJob?  @relation("JobParent", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs  BackgroundJob[] @relation("JobParent")
+  attempts   JobAttempt[]
+
+  @@unique([ownerId, generationId, jobType, idempotencyKey])
+  @@index([status])
+  @@index([availableAt])
+  @@index([generationId])
+  @@index([ownerId])
+  @@index([jobType])
+  @@index([lockExpiresAt])
+  @@index([parentJobId])
+  @@index([createdAt])
+}
+
+model JobAttempt {
+  id               String    @id @default(uuid()) @db.Uuid
+  jobId            String    @db.Uuid
+  attemptNumber    Int
+  workerIdHash     String?
+  status           String
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  heartbeatAt      DateTime?
+  failureCode      String?
+  failureMessage   String?
+  retryScheduledAt DateTime?
+  provider         String?
+  model            String?
+  promptVersion    String?
+  inputTokens      Int?
+  outputTokens     Int?
+  latencyMs        Int?
+  createdAt        DateTime  @default(now())
+
+  job BackgroundJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([attemptNumber])
+}
+
+model AiUsageRecord {
+  id                     String    @id @default(uuid()) @db.Uuid
+  ownerId                String    @db.Uuid
+  generationId           String?   @db.Uuid
+  jobId                  String?   @db.Uuid
+  operationType          String
+  provider               String
+  model                  String
+  status                 String
+  estimatedInputTokens   Int       @default(0)
+  estimatedOutputTokens  Int       @default(0)
+  actualInputTokens      Int?
+  actualOutputTokens     Int?
+  estimatedCostMicrosUsd BigInt    @default(0)
+  actualCostMicrosUsd    BigInt?
+  requestFingerprint     String?
+  providerRequestId      String?
+  usageSource            String?
+  failureCode            String?
+  attemptNumber          Int       @default(1)
+  billingPeriodStart     DateTime
+  billingPeriodEnd       DateTime
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+
+  owner      User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  generation Generation? @relation(fields: [generationId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, attemptNumber, requestFingerprint])
+  @@index([ownerId])
+  @@index([generationId])
+  @@index([jobId])
+  @@index([operationType])
+  @@index([status])
+  @@index([billingPeriodStart])
+  @@index([createdAt])
+}
+
+model UsageReservation {
+  id                     String    @id @default(uuid()) @db.Uuid
+  ownerId                String    @db.Uuid
+  jobId                  String?   @db.Uuid
+  operationType          String
+  reservedInputTokens    Int
+  reservedOutputTokens   Int
+  reservedCostMicrosUsd  BigInt
+  status                 String
+  expiresAt              DateTime
+  attemptNumber          Int       @default(1)
+  createdAt              DateTime  @default(now())
+  releasedAt             DateTime?
+  reconciledAt           DateTime?
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([jobId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model UserUsagePolicy {
+  id                              String   @id @default(uuid()) @db.Uuid
+  userId                          String   @unique @db.Uuid
+  monthlyBudgetMicrosUsd          BigInt?
+  monthlyTokenLimit               Int?
+  perOperationCostLimitMicrosUsd  BigInt?
+  maxAiOperationsPerDay           Int?
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UsagePeriodAggregate {
+  id                      String   @id @default(uuid()) @db.Uuid
+  ownerId                 String   @db.Uuid
+  periodStart             DateTime
+  periodEnd               DateTime
+  completedInputTokens    Int      @default(0)
+  completedOutputTokens   Int      @default(0)
+  completedCostMicrosUsd  BigInt   @default(0)
+  reservedTokens          Int      @default(0)
+  reservedCostMicrosUsd   BigInt   @default(0)
+  operationCount          Int      @default(0)
+  failedOperationCount    Int      @default(0)
+  dailyOperationCount     Int      @default(0)
+  dailyOperationDate      DateTime?
+  updatedAt               DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, periodStart])
+  @@index([periodStart])
+  @@index([periodEnd])
 }

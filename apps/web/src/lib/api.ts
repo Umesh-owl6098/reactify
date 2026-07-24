@@ -17,7 +17,16 @@ export class UploadRequestError extends Error {
   }
 }
 
-function parseApiError(responseText: string): UploadRequestError {
+function parseApiError(responseText: string, status: number): UploadRequestError {
+  if (!responseText.trim()) {
+    if (status === 502 || status === 503 || status === 504) {
+      return new UploadRequestError(
+        "Upload failed: the API server is unavailable. Confirm the backend is running.",
+      );
+    }
+    return new UploadRequestError("Upload failed. Please try again.");
+  }
+
   try {
     const body = JSON.parse(responseText) as APIErrorBody;
     if (body.error?.message) {
@@ -32,22 +41,34 @@ function parseApiError(responseText: string): UploadRequestError {
 
 export function getUploadErrorMessage(error: unknown): string {
   if (error instanceof UploadRequestError) {
+    const prefix = "Upload failed: ";
     switch (error.code) {
       case ErrorCode.INVALID_MIME_TYPE:
-        return "Only PNG, JPEG, and WebP images are supported.";
+        return `${prefix}only PNG, JPEG, and WebP images are supported.`;
       case ErrorCode.FILE_TOO_LARGE:
-        return "Image must be 10 MB or smaller.";
+        return `${prefix}the image must be 10 MB or smaller.`;
       case ErrorCode.CORRUPTED_IMAGE:
-        return "The selected image appears to be corrupted.";
+        return `${prefix}the server rejected the image because its signature did not match PNG, JPEG, or WebP.`;
       case ErrorCode.UNSUPPORTED_IMAGE:
-        return "The selected file is not a supported image.";
+        return `${prefix}${error.message.charAt(0).toLowerCase()}${error.message.slice(1)}`;
+      case ErrorCode.AUTHENTICATION_REQUIRED:
+        return `${prefix}sign in is required before uploading.`;
+      case ErrorCode.FORBIDDEN:
+        return `${prefix}this browser origin is not allowed to upload images.`;
+      case ErrorCode.DATABASE_UNAVAILABLE:
+      case ErrorCode.DATABASE_QUERY_FAILED:
+        return `${prefix}${error.message.charAt(0).toLowerCase()}${error.message.slice(1)}`;
       default:
-        return error.message;
+        return error.message.startsWith("Upload failed:")
+          ? error.message
+          : `${prefix}${error.message.charAt(0).toLowerCase()}${error.message.slice(1)}`;
     }
   }
 
   if (error instanceof Error) {
-    return error.message;
+    return error.message.startsWith("Upload failed:")
+      ? error.message
+      : `Upload failed: ${error.message.charAt(0).toLowerCase()}${error.message.slice(1)}`;
   }
 
   return "Upload failed. Please try again.";
@@ -78,11 +99,15 @@ export function uploadImage(
         return;
       }
 
-      reject(parseApiError(xhr.responseText));
+      reject(parseApiError(xhr.responseText, xhr.status));
     });
 
     xhr.addEventListener("error", () => {
-      reject(new UploadRequestError("Network error while uploading."));
+      reject(
+        new UploadRequestError(
+          "Upload failed: a network error occurred while contacting the API server.",
+        ),
+      );
     });
 
     xhr.addEventListener("abort", () => {
@@ -90,6 +115,7 @@ export function uploadImage(
     });
 
     xhr.open("POST", `${API_BASE}/api/v1/images`);
+    xhr.withCredentials = true;
     xhr.send(formData);
   });
 }

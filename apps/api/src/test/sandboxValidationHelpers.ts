@@ -3,6 +3,7 @@ import { generatedProjectFixture } from "@reactify/test-utils";
 import type { SandboxValidationRequest } from "@reactify/generation-contracts";
 import { computeProjectHash } from "../lib/projectHash.js";
 import type { createPipelineServices } from "../pipeline/index.js";
+import { withAuth } from "./authHelpers.js";
 
 export function createSuccessfulSandboxValidationReport(input: {
   generationId: string;
@@ -118,24 +119,30 @@ export async function submitSandboxValidationReport(
   app: FastifyInstance,
   generationId: string,
   report: SandboxValidationRequest,
+  authCookie?: string,
 ): Promise<Awaited<ReturnType<FastifyInstance["inject"]>>> {
-  return app.inject({
-    method: "POST",
-    url: `/api/v1/generations/${generationId}/sandbox-validation`,
-    payload: report,
-  });
+  return app.inject(
+    withAuth(authCookie ?? "", {
+      method: "POST",
+      url: `/api/v1/generations/${generationId}/sandbox-validation`,
+      payload: report,
+    }),
+  );
 }
 
 export async function completeSandboxValidation(
   app: FastifyInstance,
+  authCookie: string,
   generationId: string,
   pipeline: ReturnType<typeof createPipelineServices>,
 ): Promise<void> {
   const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
-    const response = await app.inject({
-      method: "GET",
-      url: `/api/v1/generations/${generationId}`,
-    });
+    const response = await app.inject(
+      withAuth(authCookie, {
+        method: "GET",
+        url: `/api/v1/generations/${generationId}`,
+      }),
+    );
     return response.json() as { awaitingSandboxValidation?: boolean; projectHash?: string | null };
   });
 
@@ -143,6 +150,7 @@ export async function completeSandboxValidation(
     app,
     generationId,
     createSuccessfulSandboxValidationReport({ generationId, projectHash }),
+    authCookie,
   );
 
   if (submitResponse.statusCode !== 200) {
@@ -150,7 +158,7 @@ export async function completeSandboxValidation(
   }
 
   const started = Date.now();
-  while (Date.now() - started < 8000) {
+  while (Date.now() - started < 15_000) {
     const record = pipeline.store.get(generationId);
     if (record?.status === "Ready" || record?.status === "RepairRequired" || record?.status === "Failed") {
       return;

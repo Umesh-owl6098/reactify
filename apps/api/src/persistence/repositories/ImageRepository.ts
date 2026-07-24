@@ -19,6 +19,7 @@ export class ImageRepository {
 
   async create(input: {
     id: string;
+    ownerId: string;
     storageKey: string;
     mimeType: AllowedImageMimeType;
     sizeBytes: number;
@@ -31,6 +32,7 @@ export class ImageRepository {
       const row = await this.prisma.uploadedImage.create({
         data: {
           id: input.id,
+          ownerId: input.ownerId,
           storageKey: input.storageKey,
           mimeType: input.mimeType,
           sizeBytes: input.sizeBytes,

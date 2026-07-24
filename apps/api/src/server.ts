@@ -1,11 +1,18 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
+import { createAuthServices } from "./auth/index.js";
+import { registerAuthHooks, type AuthContext } from "./auth/middleware.js";
+import { registerAuthRoutes } from "./auth/routes.js";
+import type { AuthorizationService } from "./auth/AuthorizationService.js";
 import { getAllowedOrigins, type Env } from "./env.js";
 import { ImageStorage } from "./lib/imageStorage.js";
 import { createPipelineServices } from "./pipeline/index.js";
+import { getPrismaClient } from "./persistence/client.js";
+import { ImageRepository } from "./persistence/repositories/ImageRepository.js";
 import { initializePersistence } from "./persistence/initialize.js";
 import type { PersistenceService } from "./persistence/PersistenceService.js";
 import { registerGenerationRoutes } from "./routes/generations.js";
@@ -22,6 +29,11 @@ import type { AIProvider } from "@reactify/shared";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerImageRoutes } from "./routes/images.js";
 import { registerVisualComparisonRoutes } from "./routes/visual-comparisons.js";
+import { registerJobRoutes } from "./routes/jobs.js";
+import { createJobServices, type JobServices } from "./jobs/index.js";
+import { UsageRepository, createUsageService, wrapWithUsageMetering } from "./usage/index.js";
+import { registerUsageRoutes, registerUsageErrorHandler } from "./routes/usage.js";
+import { safeRecoverExpiredReservations } from "./usage/usage-recovery.js";
 
 export interface BuildServerOptions {
   storageDir?: string;
@@ -32,6 +44,10 @@ export interface BuildServerOptions {
   visualComparisonService?: VisualComparisonService;
   persistence?: PersistenceService | null;
   enablePersistence?: boolean;
+  authorization?: AuthorizationService;
+  authContext?: AuthContext;
+  jobs?: JobServices | null;
+  startWorker?: boolean;
 }
 
 export async function buildServer(env: Env, options: BuildServerOptions = {}) {
@@ -48,14 +64,34 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   const artifactStore = new ComparisonArtifactStore(comparisonStorageDir);
   await artifactStore.ensureReady();
 
-  const aiProvider = options.aiProvider ?? createAIProvider(env);
-  const pipeline = options.pipeline ?? createPipelineServices(storage, { env, aiProvider });
+  const prisma = getPrismaClient(env);
+  const imageRepository = new ImageRepository(prisma);
+
   let persistence = options.persistence ?? null;
+  const baseAiProvider = options.aiProvider ?? createAIProvider(env);
+  let usageService: ReturnType<typeof createUsageService> | undefined;
+
+  if (persistence) {
+    usageService = createUsageService(env, new UsageRepository(prisma));
+  }
+
+  const aiProvider =
+    usageService && !options.aiProvider ? wrapWithUsageMetering(baseAiProvider, usageService) : baseAiProvider;
+  const pipeline =
+    options.pipeline ??
+    createPipelineServices(storage, {
+      env,
+      aiProvider,
+    });
 
   if (options.enablePersistence !== false && persistence === null && env.NODE_ENV !== "test") {
     persistence = await initializePersistence(env, pipeline.store);
   } else if (options.enablePersistence === true && persistence === null) {
     persistence = await initializePersistence(env, pipeline.store);
+  }
+
+  if (persistence && !usageService) {
+    usageService = createUsageService(env, new UsageRepository(prisma));
   }
 
   const exportService = ExportService.fromEnv(env);
@@ -76,9 +112,52 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
       artifactStore,
     });
 
+  let jobs = options.jobs ?? null;
+  if (jobs === null && persistence) {
+    jobs = createJobServices(
+      prisma,
+      env,
+      {
+        store: pipeline.store,
+        runner: pipeline.runner,
+        editService,
+        exportService,
+        visualComparisonService,
+      },
+      usageService,
+    );
+    usageService = jobs.usageService;
+    if (options.startWorker !== false && env.JOB_INLINE_EXECUTION) {
+      jobs.jobRunner.start();
+    }
+  }
+
+  const authServices =
+    options.authorization && options.authContext
+      ? {
+          authorizationService: options.authorization,
+          authContext: options.authContext,
+          repository: createAuthServices(env, prisma, pipeline.store).repository,
+        }
+      : (() => {
+          const created = createAuthServices(env, prisma, pipeline.store, storage);
+          return {
+            authorizationService: created.authorizationService,
+            authContext: {
+              authService: created.authService,
+              sessionService: created.sessionService,
+              env,
+            },
+            repository: created.repository,
+          };
+        })();
+
   await app.register(cors, {
     origin: getAllowedOrigins(env),
+    credentials: true,
   });
+
+  await app.register(cookie);
 
   await app.register(multipart, {
     limits: {
@@ -87,14 +166,63 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     },
   });
 
-  await registerHealthRoutes(app);
-  await registerImageRoutes(app, env, storage, persistence ?? undefined);
-  await registerGenerationRoutes(app, storage, pipeline.store, pipeline.runner, persistence ?? undefined);
-  await registerRepairRoutes(app, pipeline.store, pipeline.runner);
-  await registerExportRoutes(app, pipeline.store, exportService);
-  await registerEditRoutes(app, pipeline.store, editService);
-  await registerVersionRoutes(app, pipeline.store, editService);
-  await registerVisualComparisonRoutes(app, pipeline.store, visualComparisonService);
+  registerUsageErrorHandler(app);
 
-  return { app, persistence };
+  registerAuthHooks(app, authServices.authContext);
+  await registerAuthRoutes(app, authServices.authContext, authServices.repository);
+
+  await registerHealthRoutes(app);
+  await registerImageRoutes(app, env, storage, authServices.authorizationService, imageRepository);
+  await registerGenerationRoutes(
+    app,
+    storage,
+    pipeline.store,
+    pipeline.runner,
+    authServices.authorizationService,
+    imageRepository,
+    persistence ?? undefined,
+    jobs?.jobService,
+  );
+  await registerRepairRoutes(
+    app,
+    pipeline.store,
+    pipeline.runner,
+    authServices.authorizationService,
+    jobs?.jobService,
+  );
+  await registerExportRoutes(
+    app,
+    pipeline.store,
+    exportService,
+    authServices.authorizationService,
+    jobs?.jobService,
+  );
+  await registerEditRoutes(
+    app,
+    pipeline.store,
+    editService,
+    authServices.authorizationService,
+    jobs?.jobService,
+  );
+  await registerVersionRoutes(app, pipeline.store, editService, authServices.authorizationService);
+  await registerVisualComparisonRoutes(
+    app,
+    pipeline.store,
+    visualComparisonService,
+    authServices.authorizationService,
+    jobs?.jobService,
+  );
+
+  if (jobs) {
+    await registerJobRoutes(app, jobs.jobService, authServices.authorizationService);
+  }
+
+  if (usageService && persistence) {
+    await registerUsageRoutes(app, usageService, authServices.authorizationService, env);
+    void safeRecoverExpiredReservations(usageService.repository, (event, fields) => {
+      app.log.info({ event, ...fields });
+    });
+  }
+
+  return { app, persistence, authServices, jobs, usageService };
 }

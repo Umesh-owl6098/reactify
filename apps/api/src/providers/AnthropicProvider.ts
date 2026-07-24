@@ -42,6 +42,7 @@ export interface AnthropicClientLike {
       },
       options?: { timeout?: number },
     ) => Promise<{
+      id?: string;
       model: string;
       content: Array<{ type: string; text?: string }>;
       usage: { input_tokens: number; output_tokens: number };
@@ -101,9 +102,12 @@ export class AnthropicProvider implements AIProvider {
         rawText,
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
         latencyMs: Date.now() - startedAt,
         model: response.model,
         provider: this.providerName,
+        providerRequestId: response.id,
+        usageSource: "provider_reported" as const,
       };
     } catch (error) {
       if (isTimeoutError(error)) {

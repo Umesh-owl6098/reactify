@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
 import { createPipelineServices } from "../pipeline/index.js";
 import { buildServer } from "../server.js";
+import { registerTestUser } from "./authHelpers.js";
 
 export const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -17,7 +19,16 @@ export const testEnv: Env = {
   NODE_ENV: "test",
   IMAGE_MAX_BYTES: 10_485_760,
   IMAGE_STORAGE_DIR: "storage/images",
-  ALLOWED_ORIGINS: "http://localhost:5173",
+  ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:5174",
+  AUTH_ALLOWED_ORIGINS: "http://localhost:5174",
+  SESSION_COOKIE_NAME: "reactify_session",
+  SESSION_TTL_HOURS: 168,
+  SESSION_TOKEN_BYTES: 32,
+  PASSWORD_HASH_MEMORY_COST: 4096,
+  PASSWORD_HASH_TIME_COST: 1,
+  PASSWORD_HASH_PARALLELISM: 1,
+  AUTH_RATE_LIMIT_WINDOW_MS: 900_000,
+  AUTH_RATE_LIMIT_MAX_ATTEMPTS: 100,
   AI_PROVIDER: "mock",
   ANTHROPIC_MODEL: "claude-3-5-sonnet-20241022",
   AI_TIMEOUT_MS: 60_000,
@@ -55,15 +66,30 @@ export const testEnv: Env = {
     process.env.TEST_DATABASE_URL ?? "postgresql://reactify:reactify_dev@localhost:5434/reactify_test",
   DATABASE_CONNECTION_LIMIT: 5,
   DATABASE_QUERY_TIMEOUT_MS: 30_000,
+  JOB_WORKER_POLL_INTERVAL_MS: 200,
+  JOB_LOCK_TTL_MS: 120_000,
+  JOB_HEARTBEAT_INTERVAL_MS: 15_000,
+  JOB_SHUTDOWN_GRACE_MS: 5_000,
+  JOB_DEFAULT_MAX_ATTEMPTS: 3,
+  JOB_EXPORT_MAX_ATTEMPTS: 2,
+  JOB_RETRY_BASE_DELAY_MS: 50,
+  JOB_RETRY_MAX_DELAY_MS: 500,
+  JOB_BATCH_SIZE: 5,
+  WORKER_CONCURRENCY: 2,
+  JOB_INLINE_EXECUTION: false,
+  JOB_STALE_RECOVERY_INTERVAL_MS: 60_000,
+  AI_USAGE_RESERVATION_TTL_MINUTES: 120,
+  AI_BUDGET_WARNING_PERCENT: 80,
 };
 
-export async function createTestImage(storageDir: string): Promise<string> {
+export async function createTestImage(storageDir: string, ownerId?: string): Promise<string> {
   const storage = new ImageStorage(storageDir);
-  const stored = await storage.save(PNG_1X1, "image/png");
+  const stored = await storage.save(PNG_1X1, "image/png", undefined, ownerId);
   return stored.imageId;
 }
 
 export async function createTestServer(options: { aiProvider?: AIProvider; storageDir?: string; useDatabase?: boolean } = {}) {
+  process.env.AUTH_SKIP_ORIGIN_CHECK = "true";
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
   const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
     env: testEnv,
@@ -75,10 +101,18 @@ export async function createTestServer(options: { aiProvider?: AIProvider; stora
     enablePersistence: options.useDatabase ?? false,
   });
 
+  const auth = await registerTestUser(app, {
+    email: `test-${randomUUID()}@example.com`,
+    password: "secure-password-123",
+    displayName: "Test User",
+  });
+
   return {
     app,
     storageDir: resolvedStorageDir,
     pipeline,
+    authCookie: auth.cookie,
+    userId: auth.userId,
   };
 }
 
@@ -111,3 +145,11 @@ export {
   submitSandboxValidationReport,
   waitForAwaitingSandboxValidation,
 } from "./sandboxValidationHelpers.js";
+export {
+  createAuthenticatedTestImage,
+  extractSessionCookie,
+  registerTestUser,
+  signInTestUser,
+  testAuthHeaders,
+  withAuth,
+} from "./authHelpers.js";

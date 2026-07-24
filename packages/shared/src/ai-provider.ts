@@ -23,9 +23,12 @@ export interface AIInvocationResult {
   rawText: string;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   latencyMs: number;
   model: string;
   provider: string;
+  providerRequestId?: string;
+  usageSource?: "provider_reported" | "estimated";
 }
 
 export interface AIProvider {

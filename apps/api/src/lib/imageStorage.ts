@@ -12,6 +12,7 @@ export interface StoredImage {
 interface ImageMetadata {
   mimeType: AllowedImageMimeType;
   sizeBytes: number;
+  ownerId?: string;
   width?: number;
   height?: number;
   contentHash?: string;
@@ -32,6 +33,7 @@ export class ImageStorage {
     buffer: Buffer,
     mimeType: AllowedImageMimeType,
     originalFilename?: string,
+    ownerId?: string,
   ): Promise<StoredImage & { width?: number; height?: number; contentHash?: string }> {
     await this.ensureReady();
 
@@ -42,6 +44,7 @@ export class ImageStorage {
       mimeType,
       sizeBytes: buffer.length,
       originalFilename,
+      ...(ownerId ? { ownerId } : {}),
     };
 
     await writeFile(dataPath, buffer);
@@ -94,5 +97,17 @@ export class ImageStorage {
     } catch {
       return null;
     }
+  }
+
+  async delete(imageId: string): Promise<void> {
+    if (!UUID_PATTERN.test(imageId)) {
+      return;
+    }
+
+    const dataPath = join(this.storageDir, imageId);
+    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
+    const { unlink } = await import("node:fs/promises");
+
+    await Promise.allSettled([unlink(dataPath), unlink(metaPath)]);
   }
 }

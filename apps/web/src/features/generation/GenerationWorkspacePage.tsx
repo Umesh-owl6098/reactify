@@ -4,6 +4,7 @@ import { GenerationPlanReview } from "../plan/GenerationPlanReview";
 import { GeneratedProjectView } from "../generated-project/GeneratedProjectView";
 import { PipelineStatus } from "../generation/PipelineStatus";
 import { useGeneration } from "../generation/useGeneration";
+import { JobStatus, useJob, useJobStore } from "../jobs";
 import { isAwaitingPlanReview, shouldShowGeneratedProject } from "../../lib/generation-api";
 import { ImagePreview } from "../upload/ImagePreview";
 import { UploadZone } from "../upload/UploadZone";
@@ -19,6 +20,8 @@ export function GenerationWorkspacePage({ generationId }: GenerationWorkspacePag
   const upload = useUploadStore((state) => state.upload);
   const { status, error, isPolling, beginGeneration, loadGeneration, resumePolling, reset } =
     useGeneration();
+  const activeJobId = useJobStore((state) => state.activeJobId);
+  const { job } = useJob(activeJobId);
 
   useEffect(() => {
     if (generationId) {
@@ -81,6 +84,9 @@ export function GenerationWorkspacePage({ generationId }: GenerationWorkspacePag
             />
           ) : null}
           <PipelineStatus status={status} isPolling={isPolling} error={error} />
+          <div className="mt-6">
+            <JobStatus job={job} />
+          </div>
         </div>
       </main>
     </div>

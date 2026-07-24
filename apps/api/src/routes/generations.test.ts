@@ -1,15 +1,27 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generationPlanFixture } from "@reactify/test-utils";
 import {
-  createTestImage,
   createTestServer,
   completeSandboxValidation,
   waitForGenerationStatus,
+  withAuth,
+  PNG_1X1,
+  createAuthenticatedTestImage,
+  registerTestUser,
 } from "../test/helpers.js";
 
-async function waitForPlanning(app: Awaited<ReturnType<typeof createTestServer>>["app"], generationId: string) {
+function authed(app: Awaited<ReturnType<typeof createTestServer>>["app"], cookie: string, options: Parameters<typeof app.inject>[0]) {
+  return app.inject(withAuth(cookie, options));
+}
+
+async function waitForPlanning(
+  app: Awaited<ReturnType<typeof createTestServer>>["app"],
+  cookie: string,
+  generationId: string,
+) {
   await waitForGenerationStatus(async () => {
-    const response = await app.inject({
+    const response = await authed(app, cookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}`,
     });
@@ -19,28 +31,33 @@ async function waitForPlanning(app: Awaited<ReturnType<typeof createTestServer>>
 
 async function confirmPlanAndCompleteSandbox(
   app: Awaited<ReturnType<typeof createTestServer>>["app"],
+  cookie: string,
   pipeline: Awaited<ReturnType<typeof createTestServer>>["pipeline"],
   generationId: string,
 ) {
-  await app.inject({
+  await authed(app, cookie, {
     method: "POST",
     url: `/api/v1/generations/${generationId}/confirm-plan`,
     payload: { plan: generationPlanFixture },
   });
 
-  await completeSandboxValidation(app, generationId, pipeline);
+  await completeSandboxValidation(app, cookie, generationId, pipeline);
 }
 
 describe("generation routes", () => {
   let app: Awaited<ReturnType<typeof createTestServer>>["app"];
   let pipeline: Awaited<ReturnType<typeof createTestServer>>["pipeline"];
+  let authCookie = "";
+  let userId = "";
   let imageId = "";
 
   beforeEach(async () => {
     const setup = await createTestServer();
     app = setup.app;
     pipeline = setup.pipeline;
-    imageId = await createTestImage(setup.storageDir);
+    authCookie = setup.authCookie;
+    userId = setup.userId;
+    imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
   });
 
   afterEach(async () => {
@@ -48,7 +65,7 @@ describe("generation routes", () => {
   });
 
   it("starts a generation and returns generationId", async () => {
-    const response = await app.inject({
+    const response = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
@@ -61,16 +78,16 @@ describe("generation routes", () => {
   });
 
   it("pauses at Planning with a validated generation plan", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    const statusResponse = await app.inject({
+    const statusResponse = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}`,
     });
@@ -85,18 +102,18 @@ describe("generation routes", () => {
   });
 
   it("returns generation status with outputs when plan is confirmed", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+    await confirmPlanAndCompleteSandbox(app, authCookie, pipeline, generationId);
 
-    const statusResponse = await app.inject({
+    const statusResponse = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}`,
     });
@@ -107,16 +124,22 @@ describe("generation routes", () => {
     expect(body.confirmedAt).not.toBeNull();
   });
 
-  it("returns 409 when confirming in the wrong state", async () => {
-    const createResponse = await app.inject({
+  it("returns 409 when confirming a cancelled generation", async () => {
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
+    await waitForPlanning(app, authCookie, generationId);
 
-    const response = await app.inject({
+    await authed(app, authCookie, {
+      method: "POST",
+      url: `/api/v1/generations/${generationId}/cancel`,
+    });
+
+    const response = await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/confirm-plan`,
       payload: { plan: generationPlanFixture },
@@ -127,24 +150,24 @@ describe("generation routes", () => {
   });
 
   it("returns idempotent success for duplicate confirmation after resume", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    await app.inject({
+    await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/confirm-plan`,
       payload: { plan: generationPlanFixture },
     });
 
-    await completeSandboxValidation(app, generationId, pipeline);
+    await completeSandboxValidation(app, authCookie, generationId, pipeline);
 
-    const duplicate = await app.inject({
+    const duplicate = await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/confirm-plan`,
       payload: { plan: generationPlanFixture },
@@ -155,16 +178,16 @@ describe("generation routes", () => {
   });
 
   it("returns 422 for invalid plan payloads", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    const response = await app.inject({
+    const response = await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/confirm-plan`,
       payload: { plan: { schemaVersion: "1" } },
@@ -175,7 +198,7 @@ describe("generation routes", () => {
   });
 
   it("returns 404 for unknown generation", async () => {
-    const response = await app.inject({
+    const response = await authed(app, authCookie, {
       method: "GET",
       url: "/api/v1/generations/550e8400-e29b-41d4-a716-446655440000",
     });
@@ -185,7 +208,7 @@ describe("generation routes", () => {
   });
 
   it("returns 404 when starting generation for a missing image", async () => {
-    const response = await app.inject({
+    const response = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId: "550e8400-e29b-41d4-a716-446655440000" },
@@ -196,16 +219,16 @@ describe("generation routes", () => {
   });
 
   it("supports cancelling while awaiting plan confirmation", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    const cancelResponse = await app.inject({
+    const cancelResponse = await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/cancel`,
     });
@@ -213,7 +236,7 @@ describe("generation routes", () => {
     expect(cancelResponse.statusCode).toBe(200);
     expect(cancelResponse.json().status).toBe("Cancelled");
 
-    const confirmResponse = await app.inject({
+    const confirmResponse = await authed(app, authCookie, {
       method: "POST",
       url: `/api/v1/generations/${generationId}/confirm-plan`,
       payload: { plan: generationPlanFixture },
@@ -223,12 +246,12 @@ describe("generation routes", () => {
   });
 
   it("supports cancelling an in-memory generation", async () => {
-    const generationId = pipeline.store.create({ imageId }).id;
+    const generationId = pipeline.store.create({ ownerId: userId, imageId }).id;
     const runPromise = pipeline.runner.run(generationId);
     pipeline.store.cancel(generationId);
     await runPromise;
 
-    const response = await app.inject({
+    const response = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}`,
     });
@@ -237,18 +260,18 @@ describe("generation routes", () => {
   });
 
   it("returns generated project metadata without file contents when ready", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+    await confirmPlanAndCompleteSandbox(app, authCookie, pipeline, generationId);
 
-    const statusResponse = await app.inject({
+    const statusResponse = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}`,
     });
@@ -264,18 +287,18 @@ describe("generation routes", () => {
   });
 
   it("lists generated files and returns selected file content", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+    await confirmPlanAndCompleteSandbox(app, authCookie, pipeline, generationId);
 
-    const listResponse = await app.inject({
+    const listResponse = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}/files`,
     });
@@ -284,7 +307,7 @@ describe("generation routes", () => {
     expect(listResponse.json().files.length).toBeGreaterThan(0);
     expect(listResponse.json().files[0].content).toBeUndefined();
 
-    const contentResponse = await app.inject({
+    const contentResponse = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("src/App.tsx")}`,
     });
@@ -294,29 +317,63 @@ describe("generation routes", () => {
   });
 
   it("rejects traversal attempts and missing files on file content endpoint", async () => {
-    const createResponse = await app.inject({
+    const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
       payload: { imageId },
     });
 
     const generationId = createResponse.json().generationId as string;
-    await waitForPlanning(app, generationId);
+    await waitForPlanning(app, authCookie, generationId);
 
-    await confirmPlanAndCompleteSandbox(app, pipeline, generationId);
+    await confirmPlanAndCompleteSandbox(app, authCookie, pipeline, generationId);
 
-    const traversal = await app.inject({
+    const traversal = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("../secret.ts")}`,
     });
 
     expect(traversal.statusCode).toBe(422);
 
-    const missing = await app.inject({
+    const missing = await authed(app, authCookie, {
       method: "GET",
       url: `/api/v1/generations/${generationId}/files/content?path=${encodeURIComponent("src/DoesNotExist.tsx")}`,
     });
 
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("rejects unauthenticated generation creation", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/generations",
+      headers: { origin: "http://localhost:5174" },
+      payload: { imageId },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("does not expose another user's generation", async () => {
+    const createResponse = await authed(app, authCookie, {
+      method: "POST",
+      url: "/api/v1/generations",
+      payload: { imageId },
+    });
+    const generationId = createResponse.json().generationId as string;
+
+    const otherUser = await registerTestUser(app, {
+      email: `other-${randomUUID()}@example.com`,
+      password: "secure-password-123",
+      displayName: "Other User",
+    });
+
+    const response = await authed(app, otherUser.cookie, {
+      method: "GET",
+      url: `/api/v1/generations/${generationId}`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe("GENERATION_NOT_FOUND");
   });
 });

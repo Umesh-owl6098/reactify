@@ -108,6 +108,49 @@ export class EditService {
     request: NaturalLanguageEditRequest,
     idempotencyKey?: string,
   ): Promise<EditServiceResult> {
+    const prepared = this.prepareEdit(record, request, idempotencyKey);
+    if (!prepared.ok) {
+      return prepared;
+    }
+
+    const edit = this.getEdit(record, prepared.summary.editId)!;
+    record.editInProgress = true;
+
+    try {
+      const project = record.outputs.generatedProject!;
+      const intentResult = await this.runIntentAnalysis(record, edit, project);
+      if (!intentResult.ok) {
+        failEdit(edit, intentResult.message);
+        return intentResult;
+      }
+
+      edit.intent = intentResult.intent;
+      if (intentResult.intent.clarificationRequired) {
+        edit.status = "clarification_required";
+        edit.clarificationQuestion = intentResult.intent.clarificationQuestion ?? "Could you clarify your request?";
+        return { ok: true, summary: toSummary(edit), duplicate: false };
+      }
+
+      return this.generateAndMaybeApply(record, edit, project, false);
+    } catch {
+      failEdit(edit, "Edit failed unexpectedly.");
+      return {
+        ok: false,
+        errorCode: ErrorCode.INTERNAL_ERROR,
+        message: "Edit failed unexpectedly.",
+        statusCode: 500,
+      };
+    } finally {
+      record.editInProgress = false;
+      record.updatedAt = new Date().toISOString();
+    }
+  }
+
+  prepareEdit(
+    record: GenerationRecord,
+    request: NaturalLanguageEditRequest,
+    idempotencyKey?: string,
+  ): EditServiceResult {
     const eligibility = evaluateEditEligibility(record);
     if (!eligibility.ok) {
       return {
@@ -171,7 +214,6 @@ export class EditService {
       return { ok: true, summary: toSummary(existing), duplicate: true };
     }
 
-    record.editInProgress = true;
     const editId = randomUUID();
     const createdAt = new Date().toISOString();
     const edit: InternalEditRecord = {
@@ -194,33 +236,7 @@ export class EditService {
     record.activeEditId = editId;
     record.updatedAt = createdAt;
 
-    try {
-      const intentResult = await this.runIntentAnalysis(record, edit, project);
-      if (!intentResult.ok) {
-        failEdit(edit, intentResult.message);
-        return intentResult;
-      }
-
-      edit.intent = intentResult.intent;
-      if (intentResult.intent.clarificationRequired) {
-        edit.status = "clarification_required";
-        edit.clarificationQuestion = intentResult.intent.clarificationQuestion ?? "Could you clarify your request?";
-        return { ok: true, summary: toSummary(edit), duplicate: false };
-      }
-
-      return this.generateAndMaybeApply(record, edit, project, false);
-    } catch {
-      failEdit(edit, "Edit failed unexpectedly.");
-      return {
-        ok: false,
-        errorCode: ErrorCode.INTERNAL_ERROR,
-        message: "Edit failed unexpectedly.",
-        statusCode: 500,
-      };
-    } finally {
-      record.editInProgress = false;
-      record.updatedAt = new Date().toISOString();
-    }
+    return { ok: true, summary: toSummary(edit), duplicate: false };
   }
 
   async submitClarification(
@@ -609,6 +625,90 @@ export class EditService {
     record.activeEditId = edit.editId;
 
     return { ok: true, summary: toSummary(edit), duplicate: false };
+  }
+
+  async executeIntentAnalysisJob(
+    record: GenerationRecord,
+    editId: string,
+    hooks: { shouldCancel?: () => Promise<boolean> } = {},
+  ): Promise<
+    | { outcome: "clarification_required" }
+    | { outcome: "chain_project_edit" }
+    | { outcome: "completed" }
+  > {
+    const edit = this.getEdit(record, editId);
+    if (!edit) {
+      throw new Error("Edit not found.");
+    }
+
+    if (hooks.shouldCancel && (await hooks.shouldCancel())) {
+      throw new Error(ErrorCode.JOB_CANCELLED);
+    }
+
+    const project = record.outputs.generatedProject!;
+    record.editInProgress = true;
+    edit.status = "analyzing";
+
+    try {
+      const intentResult = await this.runIntentAnalysis(record, edit, project);
+      if (!intentResult.ok) {
+        failEdit(edit, intentResult.message);
+        throw new Error(intentResult.message);
+      }
+
+      edit.intent = intentResult.intent;
+      if (intentResult.intent.clarificationRequired) {
+        edit.status = "clarification_required";
+        edit.clarificationQuestion =
+          intentResult.intent.clarificationQuestion ?? "Could you clarify your request?";
+        record.editInProgress = false;
+        return { outcome: "clarification_required" };
+      }
+
+      return { outcome: "chain_project_edit" };
+    } finally {
+      record.updatedAt = new Date().toISOString();
+    }
+  }
+
+  async executeProjectEditJob(
+    record: GenerationRecord,
+    editId: string,
+    hooks: { shouldCancel?: () => Promise<boolean> } = {},
+  ): Promise<{ outcome: "completed" | "awaiting_confirmation" | "awaiting_sandbox" }> {
+    const edit = this.getEdit(record, editId);
+    if (!edit || !edit.intent) {
+      throw new Error("Edit not found.");
+    }
+
+    if (hooks.shouldCancel && (await hooks.shouldCancel())) {
+      throw new Error(ErrorCode.JOB_CANCELLED);
+    }
+
+    const project = record.outputs.generatedProject!;
+    record.editInProgress = true;
+
+    try {
+      const result = await this.generateAndMaybeApply(record, edit, project, false);
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+
+      if (edit.status === "awaiting_confirmation") {
+        return { outcome: "awaiting_confirmation" };
+      }
+
+      if (edit.status === "awaiting_sandbox_validation") {
+        return { outcome: "awaiting_sandbox" };
+      }
+
+      return { outcome: "completed" };
+    } finally {
+      if (!["awaiting_confirmation", "awaiting_sandbox_validation"].includes(edit.status)) {
+        record.editInProgress = false;
+      }
+      record.updatedAt = new Date().toISOString();
+    }
   }
 }
 

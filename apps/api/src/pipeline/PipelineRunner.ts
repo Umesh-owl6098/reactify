@@ -60,6 +60,20 @@ export interface PipelineRunnerServices {
   };
 }
 
+export interface PipelineRunOptions {
+  stopAfter?: PipelineStageName;
+  onProgress?: (progress: number, message: string) => Promise<void>;
+  shouldCancel?: () => Promise<boolean>;
+  ownsLock?: () => Promise<boolean>;
+}
+
+export type PipelineSegmentResult =
+  | { outcome: "completed" }
+  | { outcome: "paused_plan_review" }
+  | { outcome: "paused_sandbox" }
+  | { outcome: "failed"; code: string; message: string }
+  | { outcome: "cancelled" };
+
 export class PipelineRunner {
   private readonly runningGenerations = new Set<string>();
 
@@ -71,10 +85,18 @@ export class PipelineRunner {
     private readonly services: PipelineRunnerServices,
   ) {}
 
-  start(input: { imageId: string; projectId?: string; failStage?: PipelineStageName }): string {
+  start(input: { ownerId: string; imageId: string; projectId?: string; failStage?: PipelineStageName }): string {
     const record = this.store.create(input);
-    void this.run(record.id);
     return record.id;
+  }
+
+  kickoffWithoutJobs(generationId: string): void {
+    void (async () => {
+      const design = await this.runSegment(generationId, undefined, { stopAfter: "design_analysis" });
+      if (design.outcome === "completed") {
+        await this.runSegment(generationId, "generation_plan_creation", { stopAfter: "generation_plan_review" });
+      }
+    })();
   }
 
   cancel(generationId: string): boolean {
@@ -91,7 +113,6 @@ export class PipelineRunner {
       return { ok: false, reason: result.reason };
     }
 
-    void this.resume(generationId);
     return { ok: true };
   }
 
@@ -155,37 +176,37 @@ export class PipelineRunner {
       updated?.status !== "Cancelled" &&
       updated?.status !== "Failed";
 
-    if (shouldResume) {
-      await this.resumeFromSandbox(generationId);
-    }
-
     return { ok: true, duplicate: false, shouldResume };
   }
 
-  async resume(generationId: string): Promise<void> {
-    await this.run(generationId, "react_project_generation");
+  async resume(generationId: string, options?: PipelineRunOptions): Promise<PipelineSegmentResult> {
+    return this.runSegment(generationId, "react_project_generation", options);
   }
 
-  async resumeFromSandbox(generationId: string): Promise<void> {
-    await this.run(generationId, "automatic_repair");
+  async resumeFromSandbox(generationId: string, options?: PipelineRunOptions): Promise<PipelineSegmentResult> {
+    return this.runSegment(generationId, "automatic_repair", options);
   }
 
-  async run(generationId: string, fromStage?: PipelineStageName): Promise<void> {
+  async runSegment(
+    generationId: string,
+    fromStage?: PipelineStageName,
+    options: PipelineRunOptions = {},
+  ): Promise<PipelineSegmentResult> {
     if (this.runningGenerations.has(generationId)) {
-      return;
+      return { outcome: "completed" };
     }
 
     const record = this.store.get(generationId);
     if (!record) {
-      return;
+      return { outcome: "failed", code: ErrorCode.GENERATION_NOT_FOUND, message: "Generation not found." };
     }
 
     if (record.cancelled) {
-      return;
+      return { outcome: "cancelled" };
     }
 
     if (record.awaitingSandboxValidation && !fromStage) {
-      return;
+      return { outcome: "paused_sandbox" };
     }
 
     this.runningGenerations.add(generationId);
@@ -224,15 +245,23 @@ export class PipelineRunner {
       const startIndex = getStageStartIndex(fromStage);
 
       for (const stageName of PIPELINE_STAGE_ORDER.slice(startIndex)) {
+        if (options.shouldCancel && (await options.shouldCancel())) {
+          return { outcome: "cancelled" };
+        }
+
+        if (options.ownsLock && !(await options.ownsLock())) {
+          return { outcome: "cancelled" };
+        }
+
         const current = this.store.get(generationId);
         if (!current) {
-          return;
+          return { outcome: "failed", code: ErrorCode.GENERATION_NOT_FOUND, message: "Generation not found." };
         }
 
         if (current.cancelled) {
           current.activeStage = null;
           current.status = "Cancelled";
-          return;
+          return { outcome: "cancelled" };
         }
 
         if (shouldSkipStage(stageName, this.flags, state)) {
@@ -255,18 +284,26 @@ export class PipelineRunner {
             code: ErrorCode.INTERNAL_ERROR,
             message: error instanceof Error ? error.message : "Invalid stage registration",
           });
-          return;
+          return {
+            outcome: "failed",
+            code: ErrorCode.INTERNAL_ERROR,
+            message: error instanceof Error ? error.message : "Invalid stage registration",
+          };
         }
 
         if (stageName === "automatic_repair") {
           if (current.repairInProgress) {
-            return;
+            return { outcome: "completed" };
           }
           current.repairInProgress = true;
           current.repairStatus = "analyzing";
         }
 
         this.store.markStageRunning(current, stageName);
+
+        if (options.onProgress) {
+          await options.onProgress(50, `Running ${stageName}`);
+        }
 
         const result = await this.executeStageSafely(
           executor,
@@ -282,7 +319,7 @@ export class PipelineRunner {
             this.store.markStageAwaitingConfirmation(current, stageName);
             this.store.applyStateOutputs(current, state);
             this.store.pauseForPlanReview(current, state);
-            return;
+            return { outcome: "paused_plan_review" };
           }
 
           if (stageName === "sandbox_compilation") {
@@ -292,11 +329,11 @@ export class PipelineRunner {
             this.store.markStageAwaitingClient(current, stageName);
             this.store.applyStateOutputs(current, state);
             this.store.pauseForSandboxValidation(current, state);
-            return;
+            return { outcome: "paused_sandbox" };
           }
 
           if (stageName === "runtime_validation") {
-            return;
+            return { outcome: "paused_sandbox" };
           }
 
           if (stageName === "automatic_repair") {
@@ -307,7 +344,7 @@ export class PipelineRunner {
             this.store.markStageAwaitingClient(current, "sandbox_compilation");
             this.store.applyStateOutputs(current, state);
             this.store.pauseForSandboxValidation(current, state);
-            return;
+            return { outcome: "paused_sandbox" };
           }
         }
 
@@ -348,7 +385,11 @@ export class PipelineRunner {
               code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
               message: result.errorMessage ?? "Automatic repair failed",
             });
-            return;
+            return {
+              outcome: "failed",
+              code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
+              message: result.errorMessage ?? "Automatic repair failed",
+            };
           }
 
           current.status = "Failed";
@@ -358,7 +399,11 @@ export class PipelineRunner {
             code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
             message: result.errorMessage ?? "Stage failed",
           });
-          return;
+          return {
+            outcome: "failed",
+            code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
+            message: result.errorMessage ?? "Stage failed",
+          };
         }
 
         if (stageName === "automatic_repair" && result.status === "completed") {
@@ -366,11 +411,15 @@ export class PipelineRunner {
           state.repairRequired = false;
           state.repairStatus = "succeeded";
         }
+
+        if (options.stopAfter === stageName) {
+          return { outcome: "completed" };
+        }
       }
 
       const finished = this.store.get(generationId);
       if (!finished || finished.cancelled) {
-        return;
+        return { outcome: "cancelled" };
       }
 
       if (state.repairRequired && finished.status !== "RepairFailed") {
@@ -385,6 +434,7 @@ export class PipelineRunner {
       finished.resumeInProgress = false;
       finished.sandboxResumeInProgress = false;
       finished.updatedAt = new Date().toISOString();
+      return { outcome: "completed" };
     } finally {
       this.runningGenerations.delete(generationId);
       const finished = this.store.get(generationId);
@@ -402,6 +452,10 @@ export class PipelineRunner {
         void this.store.persist(finished);
       }
     }
+  }
+
+  async run(generationId: string, fromStage?: PipelineStageName, options?: PipelineRunOptions): Promise<void> {
+    await this.runSegment(generationId, fromStage, options);
   }
 
   private async executeStageSafely(

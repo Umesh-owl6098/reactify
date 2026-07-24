@@ -6,10 +6,13 @@ import {
   ExportRequestSchema,
   ExportSummarySchema,
 } from "@reactify/generation-contracts";
-import { ErrorCode, type APIErrorBody } from "@reactify/shared";
+import { ErrorCode, JobAcceptedResponseSchema, type APIErrorBody } from "@reactify/shared";
 import { ExportService } from "../lib/export/ExportService.js";
 import { getActiveProjectVersion } from "../lib/export/exportEligibility.js";
 import type { GenerationStore } from "../pipeline/store.js";
+import type { AuthorizationService } from "../auth/AuthorizationService.js";
+import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import type { JobService } from "../jobs/job-service.js";
 
 function sendError(
   reply: FastifyReply,
@@ -31,12 +34,14 @@ export async function registerExportRoutes(
   app: FastifyInstance,
   store: GenerationStore,
   exportService: ExportService,
+  authorization: AuthorizationService,
+  jobService?: JobService,
 ): Promise<void> {
   app.post("/api/v1/generations/:id/exports", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const parsed = ExportRequestSchema.safeParse(request.body ?? {});
@@ -45,6 +50,48 @@ export async function registerExportRoutes(
     }
 
     const idempotencyKey = request.headers["idempotency-key"];
+
+    if (jobService) {
+      const initiated = exportService.initiateExport(
+        record,
+        parsed.data,
+        typeof idempotencyKey === "string" ? idempotencyKey : undefined,
+      );
+
+      if (!initiated.ok) {
+        return sendError(reply, request, initiated.statusCode, initiated.errorCode, initiated.message);
+      }
+
+      if (initiated.duplicate) {
+        return reply.status(200).send(ExportSummarySchema.parse(initiated.summary));
+      }
+
+      const accepted = await jobService.enqueue({
+        generationId: id,
+        ownerId: request.auth!.user.id,
+        jobType: "export_preparation",
+        payload: {
+          generationId: id,
+          exportId: initiated.exportId!,
+          versionId: initiated.summary.versionId,
+          expectedProjectHash: initiated.summary.projectHash,
+          projectName: parsed.data.projectName,
+          includeMetadata: parsed.data.includeMetadata,
+          includeGenerationSummary: parsed.data.includeGenerationSummary,
+        },
+        idempotencyKey:
+          typeof idempotencyKey === "string"
+            ? idempotencyKey
+            : `export-${id}-${initiated.summary.versionId}-${initiated.summary.projectHash}`,
+      });
+
+      void store.persist(record);
+      return reply.status(202).send({
+        export: ExportSummarySchema.parse(initiated.summary),
+        job: JobAcceptedResponseSchema.parse(accepted.job),
+      });
+    }
+
     const result = await exportService.createExport(
       record,
       parsed.data,
@@ -72,9 +119,9 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const response = ExportHistoryListResponseSchema.parse({
@@ -86,9 +133,9 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports/:exportId", async (request, reply) => {
     const { id, exportId } = request.params as { id: string; exportId: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const exportRecord = exportService.getExport(record, exportId);
@@ -105,9 +152,9 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports/:exportId/download", async (request, reply) => {
     const { id, exportId } = request.params as { id: string; exportId: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const exportRecord = exportService.getExport(record, exportId);

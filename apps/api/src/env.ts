@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { createUsageConfig } from "./usage/usage-config.js";
+import { createPricingRegistry, parsePricingFromEnv, validatePricingForEnabledProvider } from "./usage/pricing-registry.js";
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(3001),
@@ -6,6 +8,15 @@ const EnvSchema = z.object({
   IMAGE_MAX_BYTES: z.coerce.number().default(10_485_760),
   IMAGE_STORAGE_DIR: z.string().default("storage/images"),
   ALLOWED_ORIGINS: z.string().default("http://localhost:5173"),
+  AUTH_ALLOWED_ORIGINS: z.string().default("http://localhost:5174"),
+  SESSION_COOKIE_NAME: z.string().default("reactify_session"),
+  SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168),
+  SESSION_TOKEN_BYTES: z.coerce.number().int().min(32).max(64).default(32),
+  PASSWORD_HASH_MEMORY_COST: z.coerce.number().int().positive().default(19_456),
+  PASSWORD_HASH_TIME_COST: z.coerce.number().int().positive().default(2),
+  PASSWORD_HASH_PARALLELISM: z.coerce.number().int().positive().default(1),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  AUTH_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(20),
   AI_PROVIDER: z.enum(["anthropic", "mock"]).default("mock"),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-3-5-sonnet-20241022"),
@@ -43,6 +54,32 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DATABASE_CONNECTION_LIMIT: z.coerce.number().int().positive().default(10),
   DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  JOB_WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
+  JOB_LOCK_TTL_MS: z.coerce.number().int().positive().default(120_000),
+  JOB_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  JOB_SHUTDOWN_GRACE_MS: z.coerce.number().int().nonnegative().default(30_000),
+  JOB_DEFAULT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  JOB_EXPORT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(2),
+  JOB_RETRY_BASE_DELAY_MS: z.coerce.number().int().nonnegative().default(5_000),
+  JOB_RETRY_MAX_DELAY_MS: z.coerce.number().int().nonnegative().default(60_000),
+  JOB_BATCH_SIZE: z.coerce.number().int().positive().max(20).default(5),
+  WORKER_CONCURRENCY: z.coerce.number().int().positive().max(10).default(2),
+  JOB_INLINE_EXECUTION: z.coerce.boolean().default(false),
+  JOB_STALE_RECOVERY_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  AI_DEFAULT_MONTHLY_BUDGET_USD: z.string().optional(),
+  AI_DEFAULT_MONTHLY_TOKEN_LIMIT: z.string().optional(),
+  AI_DEFAULT_MAX_OPERATION_COST_USD: z.string().optional(),
+  AI_DEFAULT_MAX_OPERATIONS_PER_DAY: z.string().optional(),
+  AI_USAGE_RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(120),
+  AI_BUDGET_WARNING_PERCENT: z.coerce.number().min(0).max(100).default(80),
+  AI_COST_CONFIRMATION_THRESHOLD_USD: z.string().optional(),
+  AI_PRICING_MODEL: z.string().optional(),
+  AI_PRICING_ANTHROPIC_MODEL_NAME: z.string().optional(),
+  AI_PRICING_INPUT_PER_MILLION_USD: z.string().optional(),
+  AI_PRICING_OUTPUT_PER_MILLION_USD: z.string().optional(),
+  AI_PRICING_FALLBACK_INPUT_PER_MILLION_USD: z.string().optional(),
+  AI_PRICING_FALLBACK_OUTPUT_PER_MILLION_USD: z.string().optional(),
+  AI_PRICING_ALLOW_FALLBACK: z.enum(["true", "false"]).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -70,7 +107,39 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
     process.exit(1);
   }
 
+  if (parsed.JOB_HEARTBEAT_INTERVAL_MS >= parsed.JOB_LOCK_TTL_MS) {
+    console.error("JOB_HEARTBEAT_INTERVAL_MS must be less than JOB_LOCK_TTL_MS.");
+    process.exit(1);
+  }
+
+  try {
+    createUsageConfig(parsed);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Invalid AI usage configuration.");
+    process.exit(1);
+  }
+
+  const pricingRegistry = createPricingRegistry(parsed, parsePricingFromEnv(env));
+  validatePricingForEnabledProvider(parsed, pricingRegistry);
+
+  if (parsed.NODE_ENV === "production") {
+    if (parsed.ALLOWED_ORIGINS.includes("*") || parsed.AUTH_ALLOWED_ORIGINS.includes("*")) {
+      console.error("Wildcard origins are not allowed in production.");
+      process.exit(1);
+    }
+    if (parsed.SESSION_TOKEN_BYTES < 32) {
+      console.error("SESSION_TOKEN_BYTES must be at least 32 in production.");
+      process.exit(1);
+    }
+  }
+
   return parsed;
+}
+
+export function getAuthAllowedOrigins(env: Env): string[] {
+  return env.AUTH_ALLOWED_ORIGINS.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
 export function getAllowedOrigins(env: Env): string[] {

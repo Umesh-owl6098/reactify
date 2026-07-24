@@ -9,6 +9,10 @@ import { ErrorCode, type APIErrorBody } from "@reactify/shared";
 import { summarizeRepairAttempts } from "../lib/repair/repairSnapshot.js";
 import type { GenerationStore } from "../pipeline/store.js";
 import type { PipelineRunner } from "../pipeline/PipelineRunner.js";
+import type { AuthorizationService } from "../auth/AuthorizationService.js";
+import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import type { JobService } from "../jobs/job-service.js";
+import { JobAcceptedResponseSchema } from "@reactify/shared";
 
 function sendError(
   reply: FastifyReply,
@@ -36,12 +40,14 @@ export async function registerRepairRoutes(
   app: FastifyInstance,
   store: GenerationStore,
   runner: PipelineRunner,
+  authorization: AuthorizationService,
+  jobService?: JobService,
 ): Promise<void> {
   app.get("/api/v1/generations/:id/repairs", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const response = RepairHistoryListResponseSchema.parse({
@@ -53,9 +59,9 @@ export async function registerRepairRoutes(
 
   app.get("/api/v1/generations/:id/repairs/:attemptNumber", async (request, reply) => {
     const { id, attemptNumber } = request.params as { id: string; attemptNumber: string };
-    const record = store.get(id);
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const attempt = record.repairAttempts.find((item) => item.attemptNumber === Number(attemptNumber));
@@ -72,6 +78,11 @@ export async function registerRepairRoutes(
 
   app.post("/api/v1/generations/:id/repairs/retry", async (request, reply) => {
     const { id } = request.params as { id: string };
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    if (!record) {
+      return;
+    }
+
     const result = store.requestManualRetry(id);
     if (!result.ok) {
       if (result.reason === "not_found") {
@@ -80,9 +91,24 @@ export async function registerRepairRoutes(
       return sendError(reply, request, 409, ErrorCode.INVALID_GENERATION_STATE, "Manual repair retry is not allowed.");
     }
 
+    if (jobService) {
+      const accepted = await jobService.enqueue({
+        generationId: id,
+        ownerId: request.auth!.user.id,
+        jobType: "automatic_repair",
+        payload: { generationId: id },
+        idempotencyKey: `manual-repair-${id}-${Date.now()}`,
+      });
+      const updatedRecord = store.get(id);
+      return reply.status(202).send({
+        status: updatedRecord?.repairStatus ?? "analyzing",
+        job: JobAcceptedResponseSchema.parse(accepted.job),
+      });
+    }
+
     await runner.resumeFromSandbox(id);
-    const record = store.get(id);
-    const response = RepairRetryResponseSchema.parse({ status: record?.repairStatus ?? "analyzing" });
+    const updatedRecord = store.get(id);
+    const response = RepairRetryResponseSchema.parse({ status: updatedRecord?.repairStatus ?? "analyzing" });
     return reply.send(response);
   });
 }

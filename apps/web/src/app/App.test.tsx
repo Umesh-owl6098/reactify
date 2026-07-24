@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { useAuthStore } from "../features/auth/authStore";
 
 vi.mock("../features/generation-history/useGenerationHistory", () => ({
   useGenerationHistory: () => ({
@@ -18,14 +19,40 @@ vi.mock("../features/generation-history/useGenerationHistory", () => ({
   }),
 }));
 
+vi.mock("../features/auth/authApi", () => ({
+  fetchSession: vi.fn().mockResolvedValue({
+    authenticated: true,
+    user: {
+      id: "11111111-1111-4111-8111-111111111111",
+      email: "user@example.com",
+      displayName: "Test User",
+      createdAt: new Date().toISOString(),
+    },
+  }),
+}));
+
 describe("App", () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: {
+        id: "11111111-1111-4111-8111-111111111111",
+        email: "user@example.com",
+        displayName: "Test User",
+        createdAt: new Date().toISOString(),
+      },
+      sessionExpiresAt: null,
+      isInitialized: true,
+      isLoading: false,
+    });
+  });
+
   it("renders the Reactify history screen with upload UI", () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/"]}>
         <App />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("heading", { name: "Reactify" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reactify" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Upload screenshot" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Project history" })).toBeInTheDocument();
   });

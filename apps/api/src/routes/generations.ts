@@ -14,16 +14,21 @@ import {
   GenerationStatusResponseSchema,
   SandboxValidationResponseSchema,
 } from "@reactify/generation-contracts";
-import { ErrorCode, type APIErrorBody } from "@reactify/shared";
+import { ErrorCode, JobAcceptedResponseSchema, type APIErrorBody } from "@reactify/shared";
 import { getGeneratedProjectFile, toGeneratedProjectSummary } from "../lib/generatedProjectResponse.js";
 import { validateSandboxValidationReport } from "../lib/sandboxValidationReport.js";
 import { validateProjectFilePath } from "../lib/validation/filePathValidator.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
 import { ensureImagePersisted } from "../lib/imagePersistence.js";
 import { sendPersistenceError } from "../lib/persistenceRouteErrors.js";
+import { requireAuth } from "../auth/middleware.js";
+import type { AuthorizationService } from "../auth/AuthorizationService.js";
+import { requireOwnedGeneration } from "../lib/generationAccess.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
+import type { ImageRepository } from "../persistence/repositories/ImageRepository.js";
 import type { PersistenceService } from "../persistence/PersistenceService.js";
 import type { PipelineRunner, GenerationStore } from "../pipeline/index.js";
+import type { JobService } from "../jobs/job-service.js";
 
 const MAX_FILE_CONTENT_BYTES = 512 * 1024;
 
@@ -52,11 +57,18 @@ export async function registerGenerationRoutes(
   imageStorage: ImageStorage,
   store: GenerationStore,
   runner: PipelineRunner,
+  authorization: AuthorizationService,
+  images: ImageRepository,
   persistence?: PersistenceService,
+  jobService?: JobService,
 ): Promise<void> {
   const MAX_LIST_LIMIT = 100;
 
   app.get("/api/v1/generations", async (request, reply) => {
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
     if (!persistence) {
       return sendError(reply, request, 503, ErrorCode.DATABASE_UNAVAILABLE, "Generation listing requires database persistence.");
     }
@@ -73,6 +85,7 @@ export async function registerGenerationRoutes(
 
     try {
       const result = await persistence.generations.listSummaries({
+        ownerId: request.auth!.user.id,
         status: query.status,
         limit,
         offset,
@@ -93,11 +106,15 @@ export async function registerGenerationRoutes(
   app.delete("/api/v1/generations/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
 
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
     if (!persistence) {
       return sendError(reply, request, 503, ErrorCode.DATABASE_UNAVAILABLE, "Generation deletion requires database persistence.");
     }
 
-    const record = store.getIncludingDeleted(id);
+    const record = authorization.getOwnedGeneration(request.auth.user.id, id);
     if (!record) {
       return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
     }
@@ -112,7 +129,7 @@ export async function registerGenerationRoutes(
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
       }
 
-      await persistence.generations.softDelete(id);
+      await persistence.generations.softDelete(id, request.auth.user.id);
       const response = DeleteGenerationResponseSchema.parse({
         generationId: id,
         deletedAt: record.deletedAt,
@@ -124,6 +141,10 @@ export async function registerGenerationRoutes(
   });
 
   app.post("/api/v1/generations", async (request, reply) => {
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
     const parsed = CreateGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, request, 422, ErrorCode.INTERNAL_ERROR, "Invalid generation request body.");
@@ -134,18 +155,37 @@ export async function registerGenerationRoutes(
       return sendError(reply, request, 404, ErrorCode.IMAGE_NOT_FOUND, "Uploaded image was not found.");
     }
 
-    if (persistence) {
-      try {
-        await ensureImagePersisted(parsed.data.imageId, imageStorage, persistence.images);
-      } catch (error) {
-        return sendPersistenceError(reply, request, error);
-      }
+    if (!(await authorization.userOwnsImage(request.auth.user.id, parsed.data.imageId))) {
+      return sendError(reply, request, 404, ErrorCode.IMAGE_NOT_FOUND, "Uploaded image was not found.");
+    }
+
+    try {
+      await ensureImagePersisted(parsed.data.imageId, request.auth.user.id, imageStorage, images);
+    } catch (error) {
+      return sendPersistenceError(reply, request, error);
     }
 
     const generationId = runner.start({
+      ownerId: request.auth.user.id,
       imageId: parsed.data.imageId,
       projectId: parsed.data.projectId,
     });
+
+    if (jobService) {
+      const accepted = await jobService.enqueue({
+        generationId,
+        ownerId: request.auth!.user.id,
+        jobType: "design_analysis",
+        payload: { generationId, imageId: parsed.data.imageId },
+        idempotencyKey: `design-analysis-${generationId}`,
+      });
+      return reply.status(202).send({
+        generationId,
+        job: JobAcceptedResponseSchema.parse(accepted.job),
+      });
+    }
+
+    runner.kickoffWithoutJobs(generationId);
 
     const response = CreateGenerationResponseSchema.parse({ generationId });
     return reply.status(202).send(response);
@@ -153,10 +193,9 @@ export async function registerGenerationRoutes(
 
   app.get("/api/v1/generations/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const snapshot = store.toSnapshot(record);
@@ -166,10 +205,9 @@ export async function registerGenerationRoutes(
 
   app.post("/api/v1/generations/:id/confirm-plan", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     if (!record.awaitingPlanConfirmation) {
@@ -241,6 +279,23 @@ export async function registerGenerationRoutes(
     }
 
     const updated = store.get(id);
+
+    if (jobService) {
+      const accepted = await jobService.enqueue({
+        generationId: id,
+        ownerId: request.auth!.user.id,
+        jobType: "react_project_generation",
+        payload: { generationId: id, editedByUser },
+        idempotencyKey: `react-project-${id}-${updated?.confirmedAt ?? "pending"}`,
+      });
+      return reply.status(202).send({
+        status: updated?.status ?? "Generating",
+        job: JobAcceptedResponseSchema.parse(accepted.job),
+      });
+    }
+
+    void runner.runSegment(id, "react_project_generation");
+
     const response = ConfirmPlanResponseSchema.parse({
       status: updated?.status ?? "Generating",
     });
@@ -249,10 +304,9 @@ export async function registerGenerationRoutes(
 
   app.post("/api/v1/generations/:id/sandbox-validation", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const validation = validateSandboxValidationReport(request.body, id);
@@ -311,6 +365,25 @@ export async function registerGenerationRoutes(
     }
 
     const updated = store.get(id);
+
+    if (submitResult.shouldResume) {
+      if (jobService) {
+        const accepted = await jobService.enqueue({
+          generationId: id,
+          ownerId: request.auth!.user.id,
+          jobType: "automatic_repair",
+          payload: { generationId: id },
+          idempotencyKey: `repair-${id}-${updated?.validationReportFingerprint ?? "unknown"}`,
+        });
+        return reply.status(202).send({
+          status: updated?.status ?? "Repairing",
+          job: JobAcceptedResponseSchema.parse(accepted.job),
+        });
+      }
+
+      await runner.resumeFromSandbox(id);
+    }
+
     const response = SandboxValidationResponseSchema.parse({
       status: updated?.status ?? "Repairing",
     });
@@ -319,10 +392,9 @@ export async function registerGenerationRoutes(
 
   app.post("/api/v1/generations/:id/cancel", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     const cancelled = runner.cancel(id);
@@ -342,10 +414,9 @@ export async function registerGenerationRoutes(
 
   app.get("/api/v1/generations/:id/files", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     if (!record.outputs.generatedProject) {
@@ -369,10 +440,9 @@ export async function registerGenerationRoutes(
   app.get("/api/v1/generations/:id/files/content", async (request, reply) => {
     const { id } = request.params as { id: string };
     const { path: requestedPath } = request.query as { path?: string };
-    const record = store.get(id);
-
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return;
     }
 
     if (!record.outputs.generatedProject) {

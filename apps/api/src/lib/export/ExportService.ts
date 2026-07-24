@@ -357,4 +357,236 @@ export class ExportService {
       record.updatedAt = new Date().toISOString();
     }
   }
+
+  initiateExport(
+    record: GenerationRecord,
+    request: ExportRequest,
+    idempotencyKey?: string,
+  ): CreateExportResult & { exportId?: string } {
+    const eligibility = evaluateExportEligibility(record);
+    if (!eligibility.ok) {
+      return {
+        ok: false,
+        errorCode: eligibility.errorCode,
+        message: eligibility.message,
+        statusCode: eligibility.errorCode === ErrorCode.GENERATION_NOT_FOUND ? 404 : 409,
+      };
+    }
+
+    const activeVersionRecord = getActiveVersion(record);
+    const project = activeVersionRecord?.project ?? record.outputs.generatedProject!;
+    const safeProjectName = sanitizeProjectName(request.projectName, project.projectName);
+    const fingerprint = computeIdempotencyFingerprint({
+      generationId: record.id,
+      versionId: eligibility.version.versionId,
+      projectName: safeProjectName,
+      includeMetadata: request.includeMetadata ?? true,
+      includeGenerationSummary: request.includeGenerationSummary ?? false,
+      idempotencyKey,
+    });
+
+    const existing = record.exports.find(
+      (entry) =>
+        entry.idempotencyFingerprint === fingerprint &&
+        entry.status === "ready" &&
+        entry.versionId === eligibility.version.versionId,
+    );
+    if (existing) {
+      return { ok: true, summary: toSummary(existing), duplicate: true, exportId: existing.exportId };
+    }
+
+    if (record.exportInProgress) {
+      return {
+        ok: false,
+        errorCode: ErrorCode.EXPORT_IN_PROGRESS,
+        message: "An export is already in progress for this generation.",
+        statusCode: 409,
+      };
+    }
+
+    record.exportInProgress = true;
+    const exportId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const filename = buildExportFilename(safeProjectName, eligibility.version.versionNumber);
+    const pending: InternalExportRecord = {
+      exportId,
+      status: "preparing",
+      filename,
+      projectName: safeProjectName,
+      generationId: record.id,
+      versionId: eligibility.version.versionId,
+      versionNumber: eligibility.version.versionNumber,
+      projectHash: eligibility.version.projectHash,
+      fileCount: 0,
+      totalSizeBytes: 0,
+      createdAt,
+      idempotencyFingerprint: fingerprint,
+      includeMetadata: request.includeMetadata,
+      includeGenerationSummary: request.includeGenerationSummary,
+    } as InternalExportRecord & {
+      includeMetadata?: boolean;
+      includeGenerationSummary?: boolean;
+    };
+    record.exports.push(pending);
+    record.updatedAt = createdAt;
+
+    return {
+      ok: true,
+      summary: toSummary(pending),
+      duplicate: false,
+      exportId,
+    };
+  }
+
+  async executeExportPreparationJob(
+    record: GenerationRecord,
+    exportId: string,
+    hooks: {
+      onProgress?: (progress: number, message: string) => Promise<void>;
+      shouldCancel?: () => Promise<boolean>;
+    } = {},
+  ): Promise<void> {
+    const pending = this.getExport(record, exportId);
+    if (!pending) {
+      throw new Error("Export not found.");
+    }
+
+    const request = {
+      projectName: pending.projectName,
+      includeMetadata: (pending as InternalExportRecord & { includeMetadata?: boolean }).includeMetadata ?? true,
+      includeGenerationSummary:
+        (pending as InternalExportRecord & { includeGenerationSummary?: boolean }).includeGenerationSummary ?? false,
+    };
+
+    try {
+      await hooks.onProgress?.(15, "Validating project");
+      if (hooks.shouldCancel && (await hooks.shouldCancel())) {
+        throw new Error(ErrorCode.JOB_CANCELLED);
+      }
+
+      const eligibility = evaluateExportEligibility(record);
+      if (!eligibility.ok) {
+        pending.status = "failed";
+        pending.failureReason = eligibility.message;
+        pending.completedAt = new Date().toISOString();
+        throw new Error(eligibility.message);
+      }
+
+      const activeVersionRecord = getActiveVersion(record);
+      const project = activeVersionRecord?.project ?? record.outputs.generatedProject!;
+      const safeProjectName = pending.projectName;
+
+      await hooks.onProgress?.(35, "Generating README");
+      const prepared = prepareProjectFiles(project, {
+        maxFiles: this.limits.maxFiles,
+        maxFileBytes: this.limits.maxFileBytes,
+        maxTotalBytes: this.limits.maxTotalBytes,
+      });
+      if (!prepared.ok) {
+        pending.status = "failed";
+        pending.failureReason = prepared.message;
+        pending.completedAt = new Date().toISOString();
+        throw new Error(prepared.message);
+      }
+
+      await hooks.onProgress?.(55, "Generating manifest");
+      const packageJson = normalizeExportPackageJson(project, safeProjectName);
+      if (!packageJson.ok) {
+        pending.status = "failed";
+        pending.failureReason = packageJson.message;
+        pending.completedAt = new Date().toISOString();
+        throw new Error(packageJson.message);
+      }
+
+      const exportedAt = new Date().toISOString();
+      const manifest = buildExportManifest({
+        exportId,
+        generationId: record.id,
+        versionId: pending.versionId,
+        versionNumber: pending.versionNumber,
+        projectName: safeProjectName,
+        projectHash: pending.projectHash,
+        exportedAt,
+        files: prepared.package.files,
+        totalSizeBytes: prepared.package.totalSizeBytes,
+        dependencies: project.dependencies,
+        devDependencies: project.devDependencies ?? {},
+      });
+
+      const readme = buildExportReadme({
+        projectName: safeProjectName,
+        summary: project.summary,
+        generationId: record.id,
+        versionNumber: pending.versionNumber,
+        projectHash: pending.projectHash,
+        components: project.components.map((component) => component.name),
+        dependencies: project.dependencies,
+        devDependencies: project.devDependencies ?? {},
+        warnings: project.warnings,
+        filePaths: prepared.package.files.map((file) => file.path),
+      });
+
+      await hooks.onProgress?.(80, "Preparing ZIP export");
+      const zipEntries: Array<{ path: string; content: string }> = [];
+      const rootPrefix = `${safeProjectName}/`;
+
+      for (const file of prepared.package.files) {
+        if (normalizeProjectPath(file.path) === "package.json") {
+          zipEntries.push({ path: `${rootPrefix}package.json`, content: packageJson.content });
+          continue;
+        }
+        zipEntries.push({ path: `${rootPrefix}${file.path}`, content: file.content });
+      }
+
+      zipEntries.push({ path: `${rootPrefix}README.md`, content: readme });
+      zipEntries.push({ path: `${rootPrefix}.gitignore`, content: EXPORT_GITIGNORE });
+
+      if (request.includeMetadata ?? true) {
+        zipEntries.push({
+          path: `${rootPrefix}reactify-manifest.json`,
+          content: `${JSON.stringify(manifest, null, 2)}\n`,
+        });
+      }
+
+      if (request.includeGenerationSummary) {
+        zipEntries.push({
+          path: `${rootPrefix}reactify-generation-summary.json`,
+          content: `${JSON.stringify(
+            buildGenerationSummary({
+              layoutHierarchy: record.outputs.designAnalysis?.layoutHierarchy,
+              planSummary: record.outputs.generationPlan?.responsiveStrategy,
+              components: project.components.map((component) => component.name),
+              responsiveStrategy: record.outputs.generationPlan?.responsiveStrategy,
+              accessibilityStrategy: record.outputs.generationPlan?.accessibilityStrategy,
+              warnings: project.warnings,
+              repairCount: record.repairAttempts.length,
+              versionNumber: pending.versionNumber,
+              exportedAt,
+            }),
+            null,
+            2,
+          )}\n`,
+        });
+      }
+
+      zipEntries.sort((left, right) => left.path.localeCompare(right.path));
+      const zipBuffer = await buildZipBuffer(zipEntries);
+      if (zipBuffer.byteLength > this.limits.maxZipBytes) {
+        pending.status = "failed";
+        pending.failureReason = "Export ZIP exceeds maximum size limit.";
+        pending.completedAt = new Date().toISOString();
+        throw new Error("Export ZIP exceeds maximum size limit.");
+      }
+
+      pending.status = "ready";
+      pending.fileCount = prepared.package.files.length;
+      pending.totalSizeBytes = prepared.package.totalSizeBytes;
+      pending.completedAt = exportedAt;
+      pending.zipBuffer = zipBuffer;
+      await hooks.onProgress?.(100, "Ready");
+    } finally {
+      record.exportInProgress = false;
+      record.updatedAt = new Date().toISOString();
+    }
+  }
 }

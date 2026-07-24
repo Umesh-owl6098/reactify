@@ -59,9 +59,11 @@ export class MockAIProvider implements AIProvider {
       rawText,
       inputTokens: this.options.inputTokens ?? 100,
       outputTokens: this.options.outputTokens ?? 500,
+      totalTokens: (this.options.inputTokens ?? 100) + (this.options.outputTokens ?? 500),
       latencyMs: this.options.latencyMs ?? 50,
       model: this.defaultModel,
       provider: this.providerName,
+      usageSource: "provider_reported" as const,
     };
   }
 }

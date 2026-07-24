@@ -1,4 +1,3 @@
-npm warn Unknown env config "devdir". This will stop working in the next major version of npm.
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 

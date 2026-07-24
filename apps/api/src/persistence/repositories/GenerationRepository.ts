@@ -16,11 +16,12 @@ const generationInclude = {
 export class GenerationRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string, includeDeleted = false): Promise<GenerationRecord | null> {
+  async findById(id: string, ownerId?: string, includeDeleted = false): Promise<GenerationRecord | null> {
     try {
       const row = await this.prisma.generation.findFirst({
         where: {
           id,
+          ...(ownerId ? { ownerId } : {}),
           ...(includeDeleted ? {} : { deletedAt: null }),
         },
         include: generationInclude,
@@ -45,6 +46,7 @@ export class GenerationRepository {
   }
 
   async list(input: {
+    ownerId: string;
     status?: string;
     limit: number;
     offset: number;
@@ -52,6 +54,7 @@ export class GenerationRepository {
   }): Promise<{ total: number; items: GenerationRecord[] }> {
     try {
       const where: Prisma.GenerationWhereInput = {
+        ownerId: input.ownerId,
         deletedAt: null,
         ...(input.status ? { status: input.status } : {}),
       };
@@ -259,10 +262,10 @@ export class GenerationRepository {
     }
   }
 
-  async softDelete(id: string): Promise<boolean> {
+  async softDelete(id: string, ownerId: string): Promise<boolean> {
     try {
       const result = await this.prisma.generation.updateMany({
-        where: { id, deletedAt: null },
+        where: { id, ownerId, deletedAt: null },
         data: { deletedAt: new Date(), updatedAt: new Date() },
       });
       return result.count > 0;
@@ -272,6 +275,7 @@ export class GenerationRepository {
   }
 
   async listSummaries(input: {
+    ownerId: string;
     status?: string;
     limit: number;
     offset: number;
@@ -296,6 +300,7 @@ export class GenerationRepository {
   }> {
     try {
       const where: Prisma.GenerationWhereInput = {
+        ownerId: input.ownerId,
         deletedAt: null,
         ...(input.status ? { status: input.status } : {}),
       };

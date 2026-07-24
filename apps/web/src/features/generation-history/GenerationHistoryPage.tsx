@@ -15,7 +15,7 @@ export function GenerationHistoryPage() {
 
   useEffect(() => {
     if (upload?.imageId) {
-      navigate(`/generations/new?imageId=${upload.imageId}`);
+      navigate(`/generations/new`, { replace: true });
     }
   }, [navigate, upload?.imageId]);
 

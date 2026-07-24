@@ -19,6 +19,7 @@ function createMockClient(
 describe("AnthropicProvider", () => {
   it("converts text and image inputs into Anthropic message content", async () => {
     const client = createMockClient({
+      id: "msg_123",
       model: "claude-3-5-sonnet-20241022",
       content: [{ type: "text", text: '{"schemaVersion":"1"}' }],
       usage: { input_tokens: 120, output_tokens: 340 },
@@ -64,6 +65,7 @@ describe("AnthropicProvider", () => {
 
   it("extracts text blocks and token usage from the response", async () => {
     const client = createMockClient({
+      id: "msg_123",
       model: "claude-3-5-sonnet-20241022",
       content: [
         { type: "text", text: '{"schemaVersion":"1",' },
@@ -85,6 +87,7 @@ describe("AnthropicProvider", () => {
     );
     expect(result.inputTokens).toBe(10);
     expect(result.outputTokens).toBe(20);
+    expect(result.totalTokens).toBe(30);
     expect(result.provider).toBe("anthropic");
     expect(result.model).toBe("claude-3-5-sonnet-20241022");
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);

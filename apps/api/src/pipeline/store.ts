@@ -55,6 +55,7 @@ export class GenerationStore {
   }
 
   create(input: {
+    ownerId: string;
     imageId: string;
     projectId?: string;
     failStage?: PipelineStageName;
@@ -62,6 +63,7 @@ export class GenerationStore {
     const now = new Date().toISOString();
     const record: GenerationRecord = {
       id: randomUUID(),
+      ownerId: input.ownerId,
       imageId: input.imageId,
       projectId: input.projectId ?? randomUUID(),
       status: "Queued",
@@ -567,6 +569,7 @@ export class GenerationStore {
 
     return {
       id: record.id,
+      ownerId: record.ownerId,
       imageId: record.imageId,
       projectId: record.projectId,
       status: record.status,

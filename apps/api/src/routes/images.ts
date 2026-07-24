@@ -9,8 +9,12 @@ import {
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
 import { persistUploadedImage } from "../lib/imagePersistence.js";
-import type { PersistenceService } from "../persistence/PersistenceService.js";
+import type { ImageRepository } from "../persistence/repositories/ImageRepository.js";
+import { PersistenceError } from "../persistence/errors.js";
 import { validateImageBuffer } from "../lib/imageValidator.js";
+import { requireAuth } from "../auth/middleware.js";
+import type { AuthorizationService } from "../auth/AuthorizationService.js";
+import { requireOwnedImage } from "../lib/generationAccess.js";
 
 function sendError(
   reply: FastifyReply,
@@ -30,16 +34,70 @@ function sendError(
   return reply.status(statusCode).send(body);
 }
 
+interface UploadLogContext {
+  request: FastifyRequest;
+  stage: string;
+  ownerId?: string;
+  originalFilename?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  imageId?: string;
+  validationResult?: string;
+  errorCode?: string;
+}
+
+function logUploadStage(app: FastifyInstance, context: UploadLogContext): void {
+  app.log.info({
+    event: "image_upload_stage",
+    requestId: context.request.id,
+    stage: context.stage,
+    ownerId: context.ownerId,
+    originalFilename: context.originalFilename,
+    mimeType: context.mimeType,
+    sizeBytes: context.sizeBytes,
+    imageId: context.imageId,
+    validationResult: context.validationResult,
+    errorCode: context.errorCode,
+  });
+}
+
 export async function registerImageRoutes(
   app: FastifyInstance,
   env: Env,
   storage: ImageStorage,
-  persistence?: PersistenceService,
+  authorization: AuthorizationService,
+  images: ImageRepository,
 ): Promise<void> {
   app.post("/api/v1/images", async (request, reply) => {
-    const file = await request.file();
+    if (!requireAuth(request, reply)) {
+      logUploadStage(app, { request, stage: "auth_required" });
+      return;
+    }
+
+    const ownerId = request.auth.user.id;
+    logUploadStage(app, { request, stage: "received", ownerId });
+
+    let file;
+    try {
+      file = await request.file();
+    } catch {
+      logUploadStage(app, {
+        request,
+        stage: "multipart_parse_failed",
+        ownerId,
+        errorCode: ErrorCode.UNSUPPORTED_IMAGE,
+      });
+      return sendError(
+        reply,
+        request,
+        422,
+        ErrorCode.UNSUPPORTED_IMAGE,
+        "Could not read uploaded image data.",
+      );
+    }
 
     if (!file) {
+      logUploadStage(app, { request, stage: "missing_file", ownerId });
       return sendError(
         reply,
         request,
@@ -50,6 +108,12 @@ export async function registerImageRoutes(
     }
 
     if (file.fieldname !== "image") {
+      logUploadStage(app, {
+        request,
+        stage: "invalid_field_name",
+        ownerId,
+        originalFilename: file.filename,
+      });
       return sendError(
         reply,
         request,
@@ -59,25 +123,101 @@ export async function registerImageRoutes(
       );
     }
 
-    const buffer = await file.toBuffer();
+    let buffer: Buffer;
+    try {
+      buffer = await file.toBuffer();
+    } catch {
+      logUploadStage(app, {
+        request,
+        stage: "file_read_failed",
+        ownerId,
+        originalFilename: file.filename,
+      });
+      return sendError(
+        reply,
+        request,
+        422,
+        ErrorCode.FILE_TOO_LARGE,
+        `File exceeds the maximum allowed size of ${Math.floor(env.IMAGE_MAX_BYTES / (1024 * 1024))} MB.`,
+      );
+    }
+
+    logUploadStage(app, {
+      request,
+      stage: "validating",
+      ownerId,
+      originalFilename: file.filename,
+      mimeType: file.mimetype,
+      sizeBytes: buffer.length,
+    });
+
     const validation = validateImageBuffer(buffer, env.IMAGE_MAX_BYTES);
 
     if (!validation.ok) {
-      const statusCode =
-        validation.errorCode === ErrorCode.FILE_TOO_LARGE ||
-        validation.errorCode === ErrorCode.INVALID_MIME_TYPE ||
-        validation.errorCode === ErrorCode.CORRUPTED_IMAGE ||
-        validation.errorCode === ErrorCode.UNSUPPORTED_IMAGE
-          ? 422
-          : 422;
-
-      return sendError(reply, request, statusCode, validation.errorCode, validation.message);
+      logUploadStage(app, {
+        request,
+        stage: "validation_failed",
+        ownerId,
+        originalFilename: file.filename,
+        sizeBytes: buffer.length,
+        validationResult: validation.errorCode,
+        errorCode: validation.errorCode,
+      });
+      return sendError(reply, request, 422, validation.errorCode, validation.message);
     }
 
-    const stored = await storage.save(buffer, validation.mimeType, file.filename);
-    if (persistence) {
-      await persistUploadedImage(stored, persistence.images, file.filename);
+    let stored;
+    try {
+      stored = await storage.save(buffer, validation.mimeType, file.filename, ownerId);
+    } catch {
+      logUploadStage(app, {
+        request,
+        stage: "storage_failed",
+        ownerId,
+        originalFilename: file.filename,
+        sizeBytes: buffer.length,
+        errorCode: ErrorCode.DATABASE_UNAVAILABLE,
+      });
+      return sendError(
+        reply,
+        request,
+        500,
+        ErrorCode.DATABASE_UNAVAILABLE,
+        "Image storage is unavailable. Please try again.",
+      );
     }
+
+    logUploadStage(app, {
+      request,
+      stage: "stored",
+      ownerId,
+      originalFilename: file.filename,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      imageId: stored.imageId,
+    });
+
+    try {
+      await persistUploadedImage(stored, ownerId, images, file.filename);
+    } catch (error) {
+      await storage.delete(stored.imageId).catch(() => undefined);
+      const code =
+        error instanceof PersistenceError ? error.code : ErrorCode.DATABASE_QUERY_FAILED;
+      const message =
+        error instanceof PersistenceError
+          ? error.message
+          : "Could not save uploaded image metadata.";
+      logUploadStage(app, {
+        request,
+        stage: "metadata_persist_failed",
+        ownerId,
+        originalFilename: file.filename,
+        imageId: stored.imageId,
+        errorCode: code,
+      });
+      return sendError(reply, request, 500, code, message);
+    }
+
     const response: ImageUploadResponse = ImageUploadResponseSchema.parse({
       imageId: stored.imageId,
       mimeType: stored.mimeType,
@@ -85,11 +225,24 @@ export async function registerImageRoutes(
       previewUrl: `/api/v1/images/${stored.imageId}`,
     });
 
+    logUploadStage(app, {
+      request,
+      stage: "completed",
+      ownerId,
+      imageId: stored.imageId,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+    });
+
     return reply.status(201).send(response);
   });
 
   app.get("/api/v1/images/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (!(await requireOwnedImage(authorization, request, reply, id, sendError))) {
+      return;
+    }
+
     const image = await storage.get(id);
 
     if (!image) {
