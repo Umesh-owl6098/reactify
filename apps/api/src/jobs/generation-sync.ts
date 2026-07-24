@@ -1,5 +1,13 @@
+import type { PipelineStageName } from "@reactify/generation-contracts";
 import type { GenerationRecord } from "../pipeline/types.js";
 import type { BackgroundJobType } from "./job-types.js";
+
+export const JOB_TYPE_TO_STAGE: Partial<Record<BackgroundJobType, PipelineStageName>> = {
+  design_analysis: "design_analysis",
+  generation_plan_creation: "generation_plan_creation",
+  react_project_generation: "react_project_generation",
+  automatic_repair: "automatic_repair",
+};
 
 const generationStatusByQueuedJob: Partial<Record<BackgroundJobType, GenerationRecord["status"]>> = {
   design_analysis: "Analyzing",
@@ -20,6 +28,8 @@ export function syncGenerationForJobStart(record: GenerationRecord, jobType: Bac
   const next = generationStatusForQueuedJob(jobType);
   if (next) {
     record.status = next;
+    record.activeStage = JOB_TYPE_TO_STAGE[jobType] ?? record.activeStage;
+    record.updatedAt = new Date().toISOString();
   }
 }
 

@@ -66,6 +66,8 @@ const EnvSchema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().positive().max(10).default(2),
   JOB_INLINE_EXECUTION: z.coerce.boolean().default(false),
   JOB_STALE_RECOVERY_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  JOB_STALE_GENERATION_THRESHOLD_MS: z.coerce.number().int().positive().default(120_000),
+  JOB_MISSING_GRACE_MS: z.coerce.number().int().nonnegative().default(60_000),
   AI_DEFAULT_MONTHLY_BUDGET_USD: z.string().optional(),
   AI_DEFAULT_MONTHLY_TOKEN_LIMIT: z.string().optional(),
   AI_DEFAULT_MAX_OPERATION_COST_USD: z.string().optional(),

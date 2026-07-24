@@ -28,6 +28,7 @@ export function createJobServices(
     visualComparisonService: VisualComparisonService;
   },
   usageService?: ReturnType<typeof createUsageService>,
+  workerPresenceFile?: string,
 ): JobServices {
   const resolvedUsageService = usageService ?? createUsageService(env, new UsageRepository(prisma));
   const jobService = new JobService(prisma, env, deps.store, resolvedUsageService);
@@ -41,6 +42,7 @@ export function createJobServices(
     jobService,
     usageService: resolvedUsageService,
     env,
+    workerPresenceFile,
     logger: {
       info: (event, fields) => console.info({ event, ...fields }),
       warn: (event, fields) => console.warn({ event, ...fields }),

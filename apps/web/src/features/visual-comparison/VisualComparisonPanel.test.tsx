@@ -60,6 +60,8 @@ const baseStatus = {
   ...visualComparisonPollingDefaults,
   visualComparisonAllowed: true,
   featureFlags: { enableGenerationPlanEditing: true },
+  manualRetryAllowed: false,
+  retryAllowed: false,
   errors: [],
   durations: { totalMs: 0, stages: {} },
 } as GenerationStatusResponse;

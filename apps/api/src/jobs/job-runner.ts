@@ -22,6 +22,7 @@ import type { JobRepository } from "./job-repository.js";
 import type { JobService } from "./job-service.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { syncGenerationForJobFailure } from "./generation-sync.js";
+import { recordWorkerPresence } from "./worker-presence.js";
 import { getWorkerId } from "./worker-id.js";
 
 export interface JobRunnerDeps {
@@ -32,6 +33,7 @@ export interface JobRunnerDeps {
   jobService: JobService;
   usageService?: UsageService;
   env: Env;
+  workerPresenceFile?: string;
   logger?: JobRunnerLogger;
 }
 
@@ -56,6 +58,13 @@ export class JobRunner {
     }
 
     void this.recoverStaleJobs();
+    void this.recordPresence();
+
+    this.deps.logger?.info("worker_polling_started", {
+      pollIntervalMs: this.deps.config.pollIntervalMs,
+      workerConcurrency: this.deps.config.workerConcurrency,
+      registeredHandlers: [...this.deps.registry.keys()],
+    });
 
     this.pollTimer = setInterval(() => {
       void this.poll();
@@ -122,6 +131,8 @@ export class JobRunner {
     if (this.shuttingDown) {
       return;
     }
+
+    await this.recordPresence();
 
     const slots = this.deps.config.workerConcurrency - this.activeExecutions;
     for (let i = 0; i < slots; i += 1) {
@@ -400,6 +411,24 @@ export class JobRunner {
           jobType: job.jobType,
         });
       }
+    }
+  }
+
+  private async recordPresence(): Promise<void> {
+    if (!this.deps.workerPresenceFile) {
+      return;
+    }
+
+    try {
+      await recordWorkerPresence(this.deps.workerPresenceFile, {
+        pollIntervalMs: this.deps.config.pollIntervalMs,
+        workerConcurrency: this.deps.config.workerConcurrency,
+        registeredHandlers: [...this.deps.registry.keys()],
+      });
+    } catch (error) {
+      this.deps.logger?.warn("worker_presence_write_failed", {
+        message: error instanceof Error ? error.message : "unknown",
+      });
     }
   }
 }

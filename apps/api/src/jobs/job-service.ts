@@ -43,10 +43,6 @@ export class JobService {
   async enqueue(params: EnqueueJobParams): Promise<{ job: JobAcceptedResponse; created: boolean }> {
     const payload = validateJobPayloadForEnqueue(params.jobType, params.payload);
     const record = this.store.get(params.generationId);
-    if (record) {
-      syncGenerationForJobStart(record, params.jobType);
-      void this.store.persist(record);
-    }
 
     const { job, created } = await this.repository.enqueue({
       generationId: params.generationId,
@@ -93,6 +89,11 @@ export class JobService {
         await this.repository.cancelJob(job.id);
         throw error;
       }
+    }
+
+    if (record) {
+      syncGenerationForJobStart(record, params.jobType);
+      await this.store.persist(record);
     }
 
     if (this.config.inlineExecution && this.inlineDispatcher) {

@@ -189,4 +189,5 @@ export interface GenerationStoreSnapshot extends Omit<
   featureFlags: {
     enableGenerationPlanEditing: boolean;
   };
+  retryAllowed: boolean;
 }

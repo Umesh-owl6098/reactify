@@ -57,6 +57,8 @@ const baseStatus: GenerationStatusResponse = {
   featureFlags: {
     enableGenerationPlanEditing: true,
   },
+  manualRetryAllowed: false,
+  retryAllowed: false,
   errors: [],
   durations: { totalMs: 0, stages: {} },
 };

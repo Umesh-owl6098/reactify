@@ -1,4 +1,3 @@
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -11,6 +10,7 @@ import type { AuthorizationService } from "./auth/AuthorizationService.js";
 import { getAllowedOrigins, type Env } from "./env.js";
 import { ImageStorage } from "./lib/imageStorage.js";
 import { createPipelineServices } from "./pipeline/index.js";
+import { resolveAppPaths } from "./config/paths.js";
 import { getPrismaClient } from "./persistence/client.js";
 import { ImageRepository } from "./persistence/repositories/ImageRepository.js";
 import { initializePersistence } from "./persistence/initialize.js";
@@ -56,9 +56,9 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     genReqId: () => randomUUID(),
   });
 
-  const storageDir = options.storageDir ?? path.resolve(process.cwd(), env.IMAGE_STORAGE_DIR);
-  const comparisonStorageDir =
-    options.comparisonStorageDir ?? path.resolve(process.cwd(), env.VISUAL_COMPARISON_STORAGE_DIR);
+  const paths = resolveAppPaths(env);
+  const storageDir = options.storageDir ?? paths.imageStorageDir;
+  const comparisonStorageDir = options.comparisonStorageDir ?? paths.comparisonStorageDir;
   const storage = new ImageStorage(storageDir);
   await storage.ensureReady();
   const artifactStore = new ComparisonArtifactStore(comparisonStorageDir);
@@ -171,7 +171,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   registerAuthHooks(app, authServices.authContext);
   await registerAuthRoutes(app, authServices.authContext, authServices.repository);
 
-  await registerHealthRoutes(app);
+  await registerHealthRoutes(app, { prisma, env });
   await registerImageRoutes(app, env, storage, authServices.authorizationService, imageRepository);
   await registerGenerationRoutes(
     app,
@@ -224,5 +224,5 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     });
   }
 
-  return { app, persistence, authServices, jobs, usageService };
+  return { app, persistence, authServices, jobs, usageService, prisma, env, paths };
 }

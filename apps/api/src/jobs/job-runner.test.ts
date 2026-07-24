@@ -17,4 +17,15 @@ describe("workflow chaining contracts", () => {
     expect(chain).toContain("design_analysis");
     expect(chain).toContain("automatic_repair");
   });
+
+  it("includes design_analysis in the job registry contract", async () => {
+    const { createJobRegistry } = await import("./job-registry.js");
+    const registry = createJobRegistry({
+      runner: {} as never,
+      editService: {} as never,
+      exportService: {} as never,
+      visualComparisonService: {} as never,
+    });
+    expect(registry.has("design_analysis")).toBe(true);
+  });
 });

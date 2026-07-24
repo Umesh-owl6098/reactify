@@ -212,6 +212,59 @@ export class JobRepository {
     return count > 0;
   }
 
+  async findLatestJobByType(
+    generationId: string,
+    jobType: BackgroundJobType,
+  ): Promise<BackgroundJobRecord | null> {
+    const row = await this.prisma.backgroundJob.findFirst({
+      where: { generationId, jobType },
+      orderBy: { createdAt: "desc" },
+    });
+    return row ? mapJob(row) : null;
+  }
+
+  async findActiveJobByType(
+    generationId: string,
+    jobType: BackgroundJobType,
+  ): Promise<BackgroundJobRecord | null> {
+    const row = await this.prisma.backgroundJob.findFirst({
+      where: {
+        generationId,
+        jobType,
+        status: { in: ["queued", "claimed", "running", "retry_scheduled", "waiting_for_client"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return row ? mapJob(row) : null;
+  }
+
+  async findRelevantJobForReconciliation(
+    generationId: string,
+    jobType: BackgroundJobType,
+  ): Promise<BackgroundJobRecord | null> {
+    const active = await this.findActiveJobByType(generationId, jobType);
+    if (active) {
+      return active;
+    }
+
+    const latest = await this.findLatestJobByType(generationId, jobType);
+    if (!latest) {
+      return null;
+    }
+
+    const replacement = await this.prisma.backgroundJob.findFirst({
+      where: {
+        generationId,
+        jobType,
+        parentJobId: latest.id,
+        status: { in: ["queued", "claimed", "running", "retry_scheduled", "waiting_for_client"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return replacement ? mapJob(replacement) : latest;
+  }
+
   async claimJobById(jobId: string, workerId: string): Promise<BackgroundJobRecord | null> {
     const lockExpiresAt = new Date(Date.now() + this.config.lockTtlMs);
     const now = new Date();

@@ -1,4 +1,4 @@
-import { JobStatusResponseSchema, type JobStatusResponse } from "@reactify/shared";
+import { JobListResponseSchema, JobStatusResponseSchema, type JobStatusResponse } from "@reactify/shared";
 import { type APIErrorBody } from "@reactify/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -20,6 +20,14 @@ export async function fetchJobStatus(jobId: string): Promise<JobStatusResponse> 
     throw new Error("Unable to fetch job status.");
   }
   return JobStatusResponseSchema.parse(await response.json());
+}
+
+export async function fetchGenerationJobs(generationId: string) {
+  const response = await jobFetch(`/api/v1/generations/${generationId}/jobs?limit=20&order=desc`);
+  if (!response.ok) {
+    throw new Error("Unable to fetch generation jobs.");
+  }
+  return JobListResponseSchema.parse(await response.json());
 }
 
 export async function cancelJob(jobId: string): Promise<JobStatusResponse> {

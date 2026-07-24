@@ -147,6 +147,8 @@ export const GenerationStatusResponseSchema = z.object({
   visualCorrectionMaxAttempts: z.number().int().positive(),
   previewCaptureRequired: z.boolean(),
   featureFlags: GenerationFeatureFlagsSchema,
+  manualRetryAllowed: z.boolean(),
+  retryAllowed: z.boolean(),
   errors: z.array(GenerationErrorSchema),
   durations: GenerationDurationsSchema,
 });

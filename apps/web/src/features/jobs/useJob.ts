@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { JobStatusResponse } from "@reactify/shared";
-import { fetchJobStatus, isTerminalJobStatus } from "./job-api.js";
+import { fetchGenerationJobs, fetchJobStatus, isTerminalJobStatus } from "./job-api.js";
 import { useJobStore } from "./jobStore.js";
 
 const ACTIVE_POLL_MS = 1500;
 const WAITING_POLL_MS = 4000;
 const HIDDEN_POLL_MS = 8000;
+const GENERATION_JOBS_POLL_MS = 3000;
 
 function pollIntervalFor(status: JobStatusResponse | null, hidden: boolean): number | null {
   if (!status || isTerminalJobStatus(status.status)) {
@@ -21,6 +22,15 @@ function pollIntervalFor(status: JobStatusResponse | null, hidden: boolean): num
   }
 
   return ACTIVE_POLL_MS;
+}
+
+function pickActiveJob(jobs: JobStatusResponse[]): JobStatusResponse | null {
+  return (
+    jobs.find((job) => ["queued", "claimed", "running", "retry_scheduled"].includes(job.status)) ??
+    jobs.find((job) => job.status === "waiting_for_client") ??
+    jobs.find((job) => ["failed", "dead_letter"].includes(job.status)) ??
+    null
+  );
 }
 
 export function useJob(jobId: string | null) {
@@ -90,7 +100,44 @@ export function useJob(jobId: string | null) {
   return { job, refresh };
 }
 
-export function useGenerationJobs(_generationId: string | null) {
+export function useGenerationJobs(generationId: string | null) {
+  const upsertJob = useJobStore((state) => state.upsertJob);
+  const setActiveJobId = useJobStore((state) => state.setActiveJobId);
   const jobs = useJobStore((state) => Object.values(state.jobs));
-  return { jobs };
+
+  const refresh = useCallback(async () => {
+    if (!generationId) {
+      return;
+    }
+
+    try {
+      const response = await fetchGenerationJobs(generationId);
+      for (const job of response.items) {
+        upsertJob(job);
+      }
+
+      const active = pickActiveJob(response.items);
+      setActiveJobId(active?.jobId ?? null);
+    } catch {
+      // Job polling errors should not blank the generation page.
+    }
+  }, [generationId, setActiveJobId, upsertJob]);
+
+  useEffect(() => {
+    if (!generationId) {
+      setActiveJobId(null);
+      return;
+    }
+
+    void refresh();
+    const intervalId = window.setInterval(() => {
+      void refresh();
+    }, GENERATION_JOBS_POLL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [generationId, refresh, setActiveJobId]);
+
+  return { jobs, refresh };
 }

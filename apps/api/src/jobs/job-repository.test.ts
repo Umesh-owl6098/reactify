@@ -100,6 +100,7 @@ describe("JobRepository", () => {
     const claimedB = await repository.claimNextJob(workerB);
 
     expect(claimedA).not.toBeNull();
-    expect(claimedB).toBeNull();
+    expect(claimedA!.generationId).toBe(generationId);
+    expect(claimedB?.generationId).not.toBe(generationId);
   });
 });

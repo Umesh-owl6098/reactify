@@ -5,6 +5,10 @@ async function main() {
   const env = validateEnv();
   const { runner, shutdown } = await buildWorker(env);
 
+  process.on("unhandledRejection", (reason) => {
+    console.error({ event: "worker_unhandled_rejection", reason: reason instanceof Error ? reason.message : String(reason) });
+  });
+
   const handleShutdown = async (signal: string) => {
     console.info({ event: "worker_shutdown_started", signal });
     await runner.stop();
@@ -20,7 +24,13 @@ async function main() {
   });
 
   runner.start();
-  console.info({ event: "worker_started" });
+  console.info("Reactify worker ready and polling for jobs");
+  console.info({
+    event: "worker_started",
+    pollIntervalMs: env.JOB_WORKER_POLL_INTERVAL_MS,
+    workerConcurrency: env.WORKER_CONCURRENCY,
+    aiProvider: env.AI_PROVIDER,
+  });
 }
 
 void main();

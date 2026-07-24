@@ -14,6 +14,8 @@ export interface JobConfig {
   workerConcurrency: number;
   inlineExecution: boolean;
   staleRecoveryIntervalMs: number;
+  staleGenerationThresholdMs: number;
+  jobMissingGraceMs: number;
 }
 
 export function createJobConfig(env: Env): JobConfig {
@@ -30,6 +32,8 @@ export function createJobConfig(env: Env): JobConfig {
     workerConcurrency: env.WORKER_CONCURRENCY,
     inlineExecution: env.JOB_INLINE_EXECUTION,
     staleRecoveryIntervalMs: env.JOB_STALE_RECOVERY_INTERVAL_MS,
+    staleGenerationThresholdMs: env.JOB_STALE_GENERATION_THRESHOLD_MS,
+    jobMissingGraceMs: env.JOB_MISSING_GRACE_MS,
   };
 }
 

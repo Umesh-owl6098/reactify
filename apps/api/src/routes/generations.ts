@@ -29,6 +29,9 @@ import type { ImageRepository } from "../persistence/repositories/ImageRepositor
 import type { PersistenceService } from "../persistence/PersistenceService.js";
 import type { PipelineRunner, GenerationStore } from "../pipeline/index.js";
 import type { JobService } from "../jobs/job-service.js";
+import { UsageLimitError } from "../jobs/job-service.js";
+import { reconcileStaleGenerationState } from "../jobs/generation-stale-reconciliation.js";
+import { recoverFailedGeneration } from "../jobs/generation-recovery.js";
 
 const MAX_FILE_CONTENT_BYTES = 512 * 1024;
 
@@ -172,17 +175,45 @@ export async function registerGenerationRoutes(
     });
 
     if (jobService) {
-      const accepted = await jobService.enqueue({
-        generationId,
-        ownerId: request.auth!.user.id,
-        jobType: "design_analysis",
-        payload: { generationId, imageId: parsed.data.imageId },
-        idempotencyKey: `design-analysis-${generationId}`,
-      });
-      return reply.status(202).send({
-        generationId,
-        job: JobAcceptedResponseSchema.parse(accepted.job),
-      });
+      try {
+        const accepted = await jobService.enqueue({
+          generationId,
+          ownerId: request.auth!.user.id,
+          jobType: "design_analysis",
+          payload: { generationId, imageId: parsed.data.imageId },
+          idempotencyKey: `design-analysis-${generationId}`,
+        });
+        return reply.status(202).send({
+          generationId,
+          job: JobAcceptedResponseSchema.parse(accepted.job),
+        });
+      } catch (error) {
+        const failureCode =
+          error instanceof UsageLimitError
+            ? (error.code as (typeof ErrorCode)[keyof typeof ErrorCode])
+            : ErrorCode.JOB_ENQUEUE_FAILED;
+        const failureMessage =
+          error instanceof UsageLimitError
+            ? error.message
+            : "Unable to queue design analysis. Confirm database migrations are applied and the worker can start.";
+
+        store.markFailed(generationId, "design_analysis", failureCode, failureMessage, {
+          manualRetryAllowed: !(error instanceof UsageLimitError),
+        });
+        await store.persistById(generationId);
+
+        if (error instanceof UsageLimitError) {
+          return sendError(
+            reply,
+            request,
+            402,
+            error.code as (typeof ErrorCode)[keyof typeof ErrorCode],
+            error.message,
+          );
+        }
+
+        return sendPersistenceError(reply, request, error);
+      }
     }
 
     runner.kickoffWithoutJobs(generationId);
@@ -198,9 +229,73 @@ export async function registerGenerationRoutes(
       return;
     }
 
-    const snapshot = store.toSnapshot(record);
+    if (jobService) {
+      await reconcileStaleGenerationState(id, store, jobService.repository, jobService.config);
+    }
+
+    const refreshed = store.get(id) ?? record;
+    const snapshot = store.toSnapshot(refreshed);
     const response = GenerationStatusResponseSchema.parse(snapshot);
     return reply.send(response);
+  });
+
+  app.post("/api/v1/generations/:id/retry", async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
+    if (!jobService) {
+      return sendError(
+        reply,
+        request,
+        503,
+        ErrorCode.DATABASE_UNAVAILABLE,
+        "Generation retry requires the background job queue.",
+      );
+    }
+
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    if (!record) {
+      return;
+    }
+
+    const result = await recoverFailedGeneration({
+      record,
+      store,
+      jobService,
+      imageStorage,
+      ownerId: request.auth!.user.id,
+    });
+
+    if (!result.ok) {
+      const statusCode =
+        result.code === ErrorCode.IMAGE_NOT_FOUND || result.code === ErrorCode.GENERATION_NOT_FOUND
+          ? 404
+          : result.code === ErrorCode.FORBIDDEN
+            ? 403
+            : result.code === ErrorCode.AI_MONTHLY_BUDGET_EXCEEDED ||
+                result.code === ErrorCode.AI_TOKEN_LIMIT_EXCEEDED ||
+                result.code === ErrorCode.AI_OPERATION_COST_LIMIT_EXCEEDED
+              ? 402
+              : 409;
+      return sendError(reply, request, statusCode, result.code as APIErrorBody["error"]["code"], result.message);
+    }
+
+    const job = await jobService.getOwnedJobStatus(result.jobId, request.auth!.user.id);
+    const refreshed = store.get(id);
+    return reply.status(result.created ? 202 : 200).send({
+      status: refreshed?.status ?? "Analyzing",
+      job: job ? JobAcceptedResponseSchema.parse({
+        jobId: job.jobId,
+        generationId: job.generationId,
+        jobType: job.jobType,
+        status: job.status,
+        createdAt: job.createdAt,
+        statusUrl: `/api/v1/jobs/${job.jobId}`,
+      }) : undefined,
+    });
   });
 
   app.post("/api/v1/generations/:id/confirm-plan", async (request, reply) => {

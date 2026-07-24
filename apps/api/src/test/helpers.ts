@@ -6,7 +6,7 @@ import type { AIProvider } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
 import { createPipelineServices } from "../pipeline/index.js";
-import { buildServer } from "../server.js";
+import { buildServer, type BuildServerOptions } from "../server.js";
 import { registerTestUser } from "./authHelpers.js";
 
 export const PNG_1X1 = Buffer.from(
@@ -78,6 +78,8 @@ export const testEnv: Env = {
   WORKER_CONCURRENCY: 2,
   JOB_INLINE_EXECUTION: false,
   JOB_STALE_RECOVERY_INTERVAL_MS: 60_000,
+  JOB_STALE_GENERATION_THRESHOLD_MS: 120_000,
+  JOB_MISSING_GRACE_MS: 60_000,
   AI_USAGE_RESERVATION_TTL_MINUTES: 120,
   AI_BUDGET_WARNING_PERCENT: 80,
 };
@@ -88,7 +90,14 @@ export async function createTestImage(storageDir: string, ownerId?: string): Pro
   return stored.imageId;
 }
 
-export async function createTestServer(options: { aiProvider?: AIProvider; storageDir?: string; useDatabase?: boolean } = {}) {
+export async function createTestServer(
+  options: {
+    aiProvider?: AIProvider;
+    storageDir?: string;
+    useDatabase?: boolean;
+    jobs?: BuildServerOptions["jobs"];
+  } = {},
+) {
   process.env.AUTH_SKIP_ORIGIN_CHECK = "true";
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
   const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
@@ -99,6 +108,7 @@ export async function createTestServer(options: { aiProvider?: AIProvider; stora
     storageDir: resolvedStorageDir,
     pipeline,
     enablePersistence: options.useDatabase ?? false,
+    jobs: options.jobs,
   });
 
   const auth = await registerTestUser(app, {

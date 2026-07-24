@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Env } from "./env.js";
 import { EditService } from "./lib/edit/EditService.js";
 import { ExportService } from "./lib/export/ExportService.js";
@@ -6,7 +5,10 @@ import { ImageStorage } from "./lib/imageStorage.js";
 import { VisualComparisonService } from "./lib/visual-comparison/VisualComparisonService.js";
 import { ComparisonArtifactStore } from "./lib/visual-comparison/comparisonArtifactStore.js";
 import { createJobServices } from "./jobs/index.js";
-import { connectDatabase, disconnectDatabase, getPrismaClient } from "./persistence/client.js";
+import { resolveAppPaths } from "./config/paths.js";
+import { connectDatabase, disconnectDatabase, getPrismaClient, verifyDatabaseAvailability } from "./persistence/client.js";
+import { verifySchemaReadiness } from "./persistence/schema-readiness.js";
+import { logDatabaseIdentity } from "./lib/database-identity.js";
 import { initializePersistence } from "./persistence/initialize.js";
 import { createPipelineServices } from "./pipeline/index.js";
 import { defaultLoadPrompt } from "./prompts/loader.js";
@@ -15,15 +17,28 @@ import { UsageRepository, createUsageService, wrapWithUsageMetering } from "./us
 import { safeRecoverExpiredReservations } from "./usage/usage-recovery.js";
 
 export async function buildWorker(env: Env) {
-  const storageDir = path.resolve(process.cwd(), env.IMAGE_STORAGE_DIR);
-  const comparisonStorageDir = path.resolve(process.cwd(), env.VISUAL_COMPARISON_STORAGE_DIR);
-  const storage = new ImageStorage(storageDir);
+  const paths = resolveAppPaths(env);
+  const storage = new ImageStorage(paths.imageStorageDir);
   await storage.ensureReady();
-  const artifactStore = new ComparisonArtifactStore(comparisonStorageDir);
+  const artifactStore = new ComparisonArtifactStore(paths.comparisonStorageDir);
   await artifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
   await connectDatabase(prisma);
+  await verifyDatabaseAvailability(prisma);
+
+  const schema = await verifySchemaReadiness(prisma);
+  if (!schema.ready) {
+    console.error({
+      event: "worker_schema_not_ready",
+      message: schema.message,
+      missingTables: schema.missingTables,
+    });
+    process.exit(1);
+  }
+
+  console.info({ event: "postgresql_connection_confirmed" });
+  await logDatabaseIdentity(prisma, env.DATABASE_URL, "worker");
 
   const usageRepository = new UsageRepository(prisma);
   const usageService = createUsageService(env, usageRepository);
@@ -56,6 +71,7 @@ export async function buildWorker(env: Env) {
       visualComparisonService,
     },
     usageService,
+    paths.workerPresenceFile,
   );
 
   await safeRecoverExpiredReservations(usageRepository, (event, fields) => {
@@ -71,5 +87,6 @@ export async function buildWorker(env: Env) {
     shutdown: async () => {
       await disconnectDatabase(prisma);
     },
+    paths,
   };
 }

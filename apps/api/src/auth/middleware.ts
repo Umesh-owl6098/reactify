@@ -46,7 +46,12 @@ export function verifyMutationOrigin(request: FastifyRequest, env: Env): boolean
 
 export function registerAuthHooks(app: import("fastify").FastifyInstance, context: AuthContext): void {
   app.addHook("onRequest", async (request, reply) => {
-    if (request.url.startsWith("/api/v1/auth/") || request.url === "/health") {
+    if (
+      request.url.startsWith("/api/v1/auth/") ||
+      request.url === "/health" ||
+      request.url === "/ready" ||
+      request.url === "/api/v1/system/readiness"
+    ) {
       return;
     }
 

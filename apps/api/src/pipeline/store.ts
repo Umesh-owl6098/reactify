@@ -16,6 +16,9 @@ import { completeEditAfterValidation, getActiveEditClarification, buildLatestEdi
 import { completeVisualCorrectionAfterValidation } from "../lib/visual-comparison/VisualComparisonService.js";
 import { ensureInitialVersion } from "../lib/edit/versionStore.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
+import { generationStatusForQueuedJob, JOB_TYPE_TO_STAGE } from "../jobs/generation-sync.js";
+import type { BackgroundJobType } from "../jobs/job-types.js";
+import { isGenerationRetryAllowed } from "../jobs/generation-recovery.js";
 import type { GenerationRecord, GenerationStoreSnapshot, PipelineState } from "./types.js";
 
 export type GenerationPersistHandler = (record: GenerationRecord) => Promise<void>;
@@ -150,6 +153,47 @@ export class GenerationStore {
     record.deletedAt = new Date().toISOString();
     record.updatedAt = record.deletedAt;
     void this.persist(record);
+    return true;
+  }
+
+  markFailed(
+    id: string,
+    stage: PipelineStageName,
+    code: string,
+    message: string,
+    options?: { manualRetryAllowed?: boolean },
+  ): boolean {
+    const record = this.records.get(id);
+    if (!record || record.status === "Ready" || record.status === "Cancelled") {
+      return false;
+    }
+
+    record.status = "Failed";
+    record.activeStage = null;
+    record.failStage = stage;
+    record.manualRetryAllowed = options?.manualRetryAllowed ?? false;
+    record.errors.push({ stage, code, message });
+    record.updatedAt = new Date().toISOString();
+    void this.persist(record);
+    return true;
+  }
+
+  recoverFromWorkerFailure(id: string, jobType: BackgroundJobType): boolean {
+    const record = this.records.get(id);
+    if (!record || record.status !== "Failed" || !record.manualRetryAllowed || record.cancelled) {
+      return false;
+    }
+
+    const nextStatus = generationStatusForQueuedJob(jobType);
+    if (!nextStatus) {
+      return false;
+    }
+
+    record.status = nextStatus;
+    record.activeStage = JOB_TYPE_TO_STAGE[jobType] ?? record.activeStage;
+    record.failStage = undefined;
+    record.manualRetryAllowed = false;
+    record.updatedAt = new Date().toISOString();
     return true;
   }
 
@@ -599,6 +643,7 @@ export class GenerationStore {
       maxRepairAttempts: record.maxRepairAttempts,
       repairInProgress: record.repairInProgress,
       manualRetryAllowed: record.manualRetryAllowed,
+      retryAllowed: isGenerationRetryAllowed(record),
       exportInProgress: record.exportInProgress,
       repair: buildRepairStatusSnapshot(record, record.maxRepairAttempts),
       exportAllowed: exportFields.exportAllowed,
