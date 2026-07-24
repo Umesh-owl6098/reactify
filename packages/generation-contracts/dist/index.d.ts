@@ -1,3 +1,4 @@
+export { AnalysisMetadataSchema, type AnalysisMetadata } from "./analysis-metadata.js";
 export { AIResponseEnvelopeSchema, type AIResponseEnvelope } from "./envelope.js";
 export { ColorTokenSchema, ComponentNodeSchema, DesignAnalysisV1Schema, SpacingTokenSchema, TypographyTokenSchema, type ComponentNode, type DesignAnalysisV1, } from "./design-analysis.js";
 export { CreateGenerationRequestSchema, CreateGenerationResponseSchema, GenerationDurationsSchema, GenerationErrorSchema, GenerationOutputsSchema, GenerationStatusResponseSchema, GenerationUserStatusSchema, type CreateGenerationRequest, type CreateGenerationResponse, type GenerationStatusResponse, type GenerationUserStatus, } from "./generation-api.js";

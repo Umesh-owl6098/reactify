@@ -43,6 +43,17 @@ const readyStatus: GenerationStatusResponse = {
     },
   },
   errors: [],
+  analysis: {
+    provider: "mock",
+    model: "mock-model-v1",
+    promptVersion: "1.0.0",
+    schemaVersion: "1",
+    inputTokens: 100,
+    outputTokens: 500,
+    latencyMs: 50,
+    temperature: 0.2,
+    generatedAt: "2026-01-01T00:00:00.000Z",
+  },
   durations: { totalMs: 10, stages: {} },
 };
 
@@ -50,8 +61,9 @@ describe("PipelineStatus", () => {
   it("shows mocked output summaries when the pipeline is ready", () => {
     render(<PipelineStatus status={readyStatus} isPolling={false} error={null} />);
     expect(screen.getByRole("heading", { name: "Generation pipeline" })).toBeInTheDocument();
-    expect(screen.getByText("Design Analysis")).toBeInTheDocument();
+    expect(screen.getByText("Design analysis completed")).toBeInTheDocument();
     expect(screen.getByText("Header > Hero")).toBeInTheDocument();
-    expect(screen.getByText("Generated Project")).toBeInTheDocument();
+    expect(screen.getByText(/mock-model-v1/)).toBeInTheDocument();
+    expect(screen.getByText("Generated Project (mock)")).toBeInTheDocument();
   });
 });

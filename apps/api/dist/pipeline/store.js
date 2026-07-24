@@ -16,6 +16,7 @@ export class GenerationStore {
                 generationPlan: null,
                 generatedProject: null,
             },
+            analysis: null,
             errors: [],
             cancelled: false,
             failStage: input.failStage,
@@ -84,6 +85,7 @@ export class GenerationStore {
             generationPlan: state.generationPlan ?? null,
             generatedProject: state.generatedProject ?? null,
         };
+        record.analysis = state.analysisMetadata ?? null;
     }
     toSnapshot(record) {
         const stages = {};
@@ -102,6 +104,7 @@ export class GenerationStore {
             activeStage: record.activeStage,
             stages: record.stages,
             outputs: record.outputs,
+            analysis: record.analysis,
             errors: record.errors,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,

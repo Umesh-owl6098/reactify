@@ -1,9 +1,13 @@
 import { writeFile } from "node:fs/promises";
+import type { AIProvider } from "@reactify/shared";
 import type { Env } from "../env.js";
 export declare const PNG_1X1: Buffer<ArrayBuffer>;
 export declare const testEnv: Env;
 export declare function createTestImage(storageDir: string): Promise<string>;
-export declare function createTestServer(storageDir?: string): Promise<{
+export declare function createTestServer(options?: {
+    aiProvider?: AIProvider;
+    storageDir?: string;
+}): Promise<{
     app: import("fastify").FastifyInstance<import("http").Server<typeof import("http").IncomingMessage, typeof import("http").ServerResponse>, import("http").IncomingMessage, import("http").ServerResponse<import("http").IncomingMessage>, import("fastify").FastifyBaseLogger, import("fastify").FastifyTypeProviderDefault>;
     storageDir: string;
     pipeline: {

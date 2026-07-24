@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AIProvider } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
 import { createPipelineServices } from "../pipeline/index.js";
@@ -17,6 +18,11 @@ export const testEnv: Env = {
   IMAGE_MAX_BYTES: 10_485_760,
   IMAGE_STORAGE_DIR: "storage/images",
   ALLOWED_ORIGINS: "http://localhost:5173",
+  AI_PROVIDER: "mock",
+  ANTHROPIC_MODEL: "claude-3-5-sonnet-20241022",
+  AI_TIMEOUT_MS: 60_000,
+  AI_MAX_TOKENS: 8192,
+  AI_TEMPERATURE: 0.2,
 };
 
 export async function createTestImage(storageDir: string): Promise<string> {
@@ -25,9 +31,12 @@ export async function createTestImage(storageDir: string): Promise<string> {
   return stored.imageId;
 }
 
-export async function createTestServer(storageDir?: string) {
-  const resolvedStorageDir = storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
-  const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir));
+export async function createTestServer(options: { aiProvider?: AIProvider; storageDir?: string } = {}) {
+  const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
+  const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
+    env: testEnv,
+    aiProvider: options.aiProvider,
+  });
   const app = await buildServer(testEnv, {
     storageDir: resolvedStorageDir,
     pipeline,

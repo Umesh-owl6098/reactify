@@ -4,3 +4,8 @@ export {
   generatedProjectFixture,
   generationPlanFixture,
 } from "./fixtures/index.js";
+export {
+  MockAIProvider,
+  createDesignAnalysisFixtureJson,
+  type MockAIProviderOptions,
+} from "./MockAIProvider.js";

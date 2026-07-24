@@ -58,11 +58,11 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             name: z.ZodString;
             value: z.ZodString;
         }, "strip", z.ZodTypeAny, {
-            name: string;
             value: string;
+            name: string;
         }, {
-            name: string;
             value: string;
+            name: string;
         }>, "many">;
         borders: z.ZodOptional<z.ZodString>;
         shadows: z.ZodOptional<z.ZodString>;
@@ -89,8 +89,8 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             letterSpacing?: string | undefined;
         }[];
         spacing: {
-            name: string;
             value: string;
+            name: string;
         }[];
         borders?: string | undefined;
         shadows?: string | undefined;
@@ -117,8 +117,8 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             letterSpacing?: string | undefined;
         }[];
         spacing: {
-            name: string;
             value: string;
+            name: string;
         }[];
         borders?: string | undefined;
         shadows?: string | undefined;
@@ -140,43 +140,43 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
                 required: z.ZodBoolean;
                 description: z.ZodString;
             }, "strip", z.ZodTypeAny, {
-                name: string;
                 type: string;
-                description: string;
+                name: string;
                 required: boolean;
+                description: string;
             }, {
-                name: string;
                 type: string;
-                description: string;
+                name: string;
                 required: boolean;
+                description: string;
             }>, "many">;
             children: z.ZodBoolean;
             dependencies: z.ZodArray<z.ZodString, "many">;
             accessibilityNotes: z.ZodString;
         }, "strip", z.ZodTypeAny, {
-            name: string;
             type: string;
+            name: string;
+            purpose: string;
             props: {
-                name: string;
                 type: string;
-                description: string;
+                name: string;
                 required: boolean;
+                description: string;
             }[];
             children: boolean;
-            purpose: string;
             dependencies: string[];
             accessibilityNotes: string;
         }, {
-            name: string;
             type: string;
+            name: string;
+            purpose: string;
             props: {
-                name: string;
                 type: string;
-                description: string;
+                name: string;
                 required: boolean;
+                description: string;
             }[];
             children: boolean;
-            purpose: string;
             dependencies: string[];
             accessibilityNotes: string;
         }>, "many">;
@@ -188,13 +188,13 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         }, "strip", z.ZodTypeAny, {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }, {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }>, "many">;
         designTokens: z.ZodObject<{
             colors: z.ZodRecord<z.ZodString, z.ZodString>;
@@ -224,25 +224,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
+        components: {
+            type: string;
+            name: string;
+            purpose: string;
+            props: {
+                type: string;
+                name: string;
+                required: boolean;
+                description: string;
+            }[];
+            children: boolean;
+            dependencies: string[];
+            accessibilityNotes: string;
+        }[];
         files: {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
-        }[];
-        components: {
-            name: string;
-            type: string;
-            props: {
-                name: string;
-                type: string;
-                description: string;
-                required: boolean;
-            }[];
-            children: boolean;
-            purpose: string;
-            dependencies: string[];
-            accessibilityNotes: string;
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }[];
         designTokens: {
             colors: Record<string, string>;
@@ -259,25 +259,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
+        components: {
+            type: string;
+            name: string;
+            purpose: string;
+            props: {
+                type: string;
+                name: string;
+                required: boolean;
+                description: string;
+            }[];
+            children: boolean;
+            dependencies: string[];
+            accessibilityNotes: string;
+        }[];
         files: {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
-        }[];
-        components: {
-            name: string;
-            type: string;
-            props: {
-                name: string;
-                type: string;
-                description: string;
-                required: boolean;
-            }[];
-            children: boolean;
-            purpose: string;
-            dependencies: string[];
-            accessibilityNotes: string;
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }[];
         designTokens: {
             colors: Record<string, string>;
@@ -314,41 +314,41 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
                     required: z.ZodBoolean;
                     description: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }, {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }>, "many">;
                 children: z.ZodBoolean;
                 dependencies: z.ZodArray<z.ZodString, "many">;
                 accessibilityNotes: z.ZodString;
             }, "strip", z.ZodTypeAny, {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             }, {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             }>>;
@@ -359,14 +359,14 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
@@ -377,14 +377,14 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
@@ -395,8 +395,6 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
-        projectName: string;
-        summary: string;
         files: {
             path: string;
             purpose: string;
@@ -404,29 +402,29 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
         }[];
+        projectName: string;
+        summary: string;
         entryFile: string;
         warnings: string[];
+        devDependencies?: Record<string, string> | undefined;
         generationPlanRef?: string | undefined;
         designAnalysisRef?: string | undefined;
-        devDependencies?: Record<string, string> | undefined;
     }, {
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
-        projectName: string;
-        summary: string;
         files: {
             path: string;
             purpose: string;
@@ -434,23 +432,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
         }[];
+        projectName: string;
+        summary: string;
         entryFile: string;
         warnings: string[];
+        devDependencies?: Record<string, string> | undefined;
         generationPlanRef?: string | undefined;
         designAnalysisRef?: string | undefined;
-        devDependencies?: Record<string, string> | undefined;
     }>>;
 }, "strip", z.ZodTypeAny, {
     designAnalysis: {
@@ -472,8 +472,8 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             letterSpacing?: string | undefined;
         }[];
         spacing: {
-            name: string;
             value: string;
+            name: string;
         }[];
         borders?: string | undefined;
         shadows?: string | undefined;
@@ -486,25 +486,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
+        components: {
+            type: string;
+            name: string;
+            purpose: string;
+            props: {
+                type: string;
+                name: string;
+                required: boolean;
+                description: string;
+            }[];
+            children: boolean;
+            dependencies: string[];
+            accessibilityNotes: string;
+        }[];
         files: {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
-        }[];
-        components: {
-            name: string;
-            type: string;
-            props: {
-                name: string;
-                type: string;
-                description: string;
-                required: boolean;
-            }[];
-            children: boolean;
-            purpose: string;
-            dependencies: string[];
-            accessibilityNotes: string;
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }[];
         designTokens: {
             colors: Record<string, string>;
@@ -522,8 +522,6 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
-        projectName: string;
-        summary: string;
         files: {
             path: string;
             purpose: string;
@@ -531,23 +529,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
         }[];
+        projectName: string;
+        summary: string;
         entryFile: string;
         warnings: string[];
+        devDependencies?: Record<string, string> | undefined;
         generationPlanRef?: string | undefined;
         designAnalysisRef?: string | undefined;
-        devDependencies?: Record<string, string> | undefined;
     } | null;
 }, {
     designAnalysis: {
@@ -569,8 +569,8 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             letterSpacing?: string | undefined;
         }[];
         spacing: {
-            name: string;
             value: string;
+            name: string;
         }[];
         borders?: string | undefined;
         shadows?: string | undefined;
@@ -583,25 +583,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
+        components: {
+            type: string;
+            name: string;
+            purpose: string;
+            props: {
+                type: string;
+                name: string;
+                required: boolean;
+                description: string;
+            }[];
+            children: boolean;
+            dependencies: string[];
+            accessibilityNotes: string;
+        }[];
         files: {
             path: string;
             purpose: string;
-            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             components: string[];
-        }[];
-        components: {
-            name: string;
-            type: string;
-            props: {
-                name: string;
-                type: string;
-                description: string;
-                required: boolean;
-            }[];
-            children: boolean;
-            purpose: string;
-            dependencies: string[];
-            accessibilityNotes: string;
+            language: "tsx" | "ts" | "css" | "json" | "html" | "js";
         }[];
         designTokens: {
             colors: Record<string, string>;
@@ -619,8 +619,6 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
         schemaVersion: "1";
         responseVersion: string;
         dependencies: Record<string, string>;
-        projectName: string;
-        summary: string;
         files: {
             path: string;
             purpose: string;
@@ -628,23 +626,25 @@ export declare const GenerationOutputsSchema: z.ZodObject<{
             content: string;
             componentMetadata?: {
                 name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             } | undefined;
         }[];
+        projectName: string;
+        summary: string;
         entryFile: string;
         warnings: string[];
+        devDependencies?: Record<string, string> | undefined;
         generationPlanRef?: string | undefined;
         designAnalysisRef?: string | undefined;
-        devDependencies?: Record<string, string> | undefined;
     } | null;
 }>;
 export declare const GenerationDurationsSchema: z.ZodObject<{
@@ -750,11 +750,11 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 name: z.ZodString;
                 value: z.ZodString;
             }, "strip", z.ZodTypeAny, {
-                name: string;
                 value: string;
+                name: string;
             }, {
-                name: string;
                 value: string;
+                name: string;
             }>, "many">;
             borders: z.ZodOptional<z.ZodString>;
             shadows: z.ZodOptional<z.ZodString>;
@@ -781,8 +781,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -809,8 +809,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -832,43 +832,43 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                     required: z.ZodBoolean;
                     description: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }, {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }>, "many">;
                 children: z.ZodBoolean;
                 dependencies: z.ZodArray<z.ZodString, "many">;
                 accessibilityNotes: z.ZodString;
             }, "strip", z.ZodTypeAny, {
-                name: string;
                 type: string;
+                name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             }, {
-                name: string;
                 type: string;
+                name: string;
+                purpose: string;
                 props: {
-                    name: string;
                     type: string;
-                    description: string;
+                    name: string;
                     required: boolean;
+                    description: string;
                 }[];
                 children: boolean;
-                purpose: string;
                 dependencies: string[];
                 accessibilityNotes: string;
             }>, "many">;
@@ -880,13 +880,13 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             }, "strip", z.ZodTypeAny, {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }, {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }>, "many">;
             designTokens: z.ZodObject<{
                 colors: z.ZodRecord<z.ZodString, z.ZodString>;
@@ -916,25 +916,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -951,25 +951,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -1006,41 +1006,41 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                         required: z.ZodBoolean;
                         description: z.ZodString;
                     }, "strip", z.ZodTypeAny, {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }, {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }>, "many">;
                     children: z.ZodBoolean;
                     dependencies: z.ZodArray<z.ZodString, "many">;
                     accessibilityNotes: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 }, {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 }>>;
@@ -1051,14 +1051,14 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
@@ -1069,14 +1069,14 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
@@ -1087,8 +1087,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1096,29 +1094,29 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         }, {
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1126,23 +1124,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         designAnalysis: {
@@ -1164,8 +1164,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -1178,25 +1178,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -1214,8 +1214,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1223,23 +1221,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         } | null;
     }, {
         designAnalysis: {
@@ -1261,8 +1261,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -1275,25 +1275,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -1311,8 +1311,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1320,25 +1318,58 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         } | null;
     }>;
+    analysis: z.ZodNullable<z.ZodObject<{
+        provider: z.ZodString;
+        model: z.ZodString;
+        promptVersion: z.ZodString;
+        schemaVersion: z.ZodString;
+        inputTokens: z.ZodNumber;
+        outputTokens: z.ZodNumber;
+        latencyMs: z.ZodNumber;
+        temperature: z.ZodNumber;
+        generatedAt: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        provider: string;
+        model: string;
+        promptVersion: string;
+        schemaVersion: string;
+        inputTokens: number;
+        outputTokens: number;
+        latencyMs: number;
+        temperature: number;
+        generatedAt: string;
+    }, {
+        provider: string;
+        model: string;
+        promptVersion: string;
+        schemaVersion: string;
+        inputTokens: number;
+        outputTokens: number;
+        latencyMs: number;
+        temperature: number;
+        generatedAt: string;
+    }>>;
     errors: z.ZodArray<z.ZodObject<{
         stage: z.ZodEnum<["upload_validation", "image_preparation", "design_analysis", "generation_plan_creation", "generation_plan_review", "react_project_generation", "schema_validation", "static_validation", "sandbox_compilation", "runtime_validation", "automatic_repair", "preview_ready"]>;
         code: z.ZodString;
@@ -1364,7 +1395,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
     }>;
 }, "strip", z.ZodTypeAny, {
     status: "Queued" | "Uploading" | "Analyzing" | "Planning" | "Generating" | "Validating" | "Compiling" | "Repairing" | "Ready" | "Failed" | "Cancelled";
-    id: string;
     stages: {
         status: "pending" | "running" | "completed" | "failed" | "skipped" | "cancelled";
         stage: "upload_validation" | "image_preparation" | "design_analysis" | "generation_plan_creation" | "generation_plan_review" | "react_project_generation" | "schema_validation" | "static_validation" | "sandbox_compilation" | "runtime_validation" | "automatic_repair" | "preview_ready";
@@ -1376,6 +1406,7 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
     }[];
     imageId: string;
     projectId: string;
+    id: string;
     activeStage: "upload_validation" | "image_preparation" | "design_analysis" | "generation_plan_creation" | "generation_plan_review" | "react_project_generation" | "schema_validation" | "static_validation" | "sandbox_compilation" | "runtime_validation" | "automatic_repair" | "preview_ready" | null;
     outputs: {
         designAnalysis: {
@@ -1397,8 +1428,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -1411,25 +1442,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -1447,8 +1478,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1456,25 +1485,38 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         } | null;
     };
+    analysis: {
+        provider: string;
+        model: string;
+        promptVersion: string;
+        schemaVersion: string;
+        inputTokens: number;
+        outputTokens: number;
+        latencyMs: number;
+        temperature: number;
+        generatedAt: string;
+    } | null;
     errors: {
         code: string;
         message: string;
@@ -1486,7 +1528,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
     };
 }, {
     status: "Queued" | "Uploading" | "Analyzing" | "Planning" | "Generating" | "Validating" | "Compiling" | "Repairing" | "Ready" | "Failed" | "Cancelled";
-    id: string;
     stages: {
         status: "pending" | "running" | "completed" | "failed" | "skipped" | "cancelled";
         stage: "upload_validation" | "image_preparation" | "design_analysis" | "generation_plan_creation" | "generation_plan_review" | "react_project_generation" | "schema_validation" | "static_validation" | "sandbox_compilation" | "runtime_validation" | "automatic_repair" | "preview_ready";
@@ -1498,6 +1539,7 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
     }[];
     imageId: string;
     projectId: string;
+    id: string;
     activeStage: "upload_validation" | "image_preparation" | "design_analysis" | "generation_plan_creation" | "generation_plan_review" | "react_project_generation" | "schema_validation" | "static_validation" | "sandbox_compilation" | "runtime_validation" | "automatic_repair" | "preview_ready" | null;
     outputs: {
         designAnalysis: {
@@ -1519,8 +1561,8 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 letterSpacing?: string | undefined;
             }[];
             spacing: {
-                name: string;
                 value: string;
+                name: string;
             }[];
             borders?: string | undefined;
             shadows?: string | undefined;
@@ -1533,25 +1575,25 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
+            components: {
+                type: string;
+                name: string;
+                purpose: string;
+                props: {
+                    type: string;
+                    name: string;
+                    required: boolean;
+                    description: string;
+                }[];
+                children: boolean;
+                dependencies: string[];
+                accessibilityNotes: string;
+            }[];
             files: {
                 path: string;
                 purpose: string;
-                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
                 components: string[];
-            }[];
-            components: {
-                name: string;
-                type: string;
-                props: {
-                    name: string;
-                    type: string;
-                    description: string;
-                    required: boolean;
-                }[];
-                children: boolean;
-                purpose: string;
-                dependencies: string[];
-                accessibilityNotes: string;
+                language: "tsx" | "ts" | "css" | "json" | "html" | "js";
             }[];
             designTokens: {
                 colors: Record<string, string>;
@@ -1569,8 +1611,6 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
             schemaVersion: "1";
             responseVersion: string;
             dependencies: Record<string, string>;
-            projectName: string;
-            summary: string;
             files: {
                 path: string;
                 purpose: string;
@@ -1578,25 +1618,38 @@ export declare const GenerationStatusResponseSchema: z.ZodObject<{
                 content: string;
                 componentMetadata?: {
                     name: string;
+                    purpose: string;
                     props: {
-                        name: string;
                         type: string;
-                        description: string;
+                        name: string;
                         required: boolean;
+                        description: string;
                     }[];
                     children: boolean;
-                    purpose: string;
                     dependencies: string[];
                     accessibilityNotes: string;
                 } | undefined;
             }[];
+            projectName: string;
+            summary: string;
             entryFile: string;
             warnings: string[];
+            devDependencies?: Record<string, string> | undefined;
             generationPlanRef?: string | undefined;
             designAnalysisRef?: string | undefined;
-            devDependencies?: Record<string, string> | undefined;
         } | null;
     };
+    analysis: {
+        provider: string;
+        model: string;
+        promptVersion: string;
+        schemaVersion: string;
+        inputTokens: number;
+        outputTokens: number;
+        latencyMs: number;
+        temperature: number;
+        generatedAt: string;
+    } | null;
     errors: {
         code: string;
         message: string;

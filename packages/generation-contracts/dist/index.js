@@ -1,3 +1,4 @@
+export { AnalysisMetadataSchema } from "./analysis-metadata.js";
 export { AIResponseEnvelopeSchema } from "./envelope.js";
 export { ColorTokenSchema, ComponentNodeSchema, DesignAnalysisV1Schema, SpacingTokenSchema, TypographyTokenSchema, } from "./design-analysis.js";
 export { CreateGenerationRequestSchema, CreateGenerationResponseSchema, GenerationDurationsSchema, GenerationErrorSchema, GenerationOutputsSchema, GenerationStatusResponseSchema, GenerationUserStatusSchema, } from "./generation-api.js";

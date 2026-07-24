@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AnalysisMetadataSchema } from "./analysis-metadata.js";
 import { DesignAnalysisV1Schema } from "./design-analysis.js";
 import { GeneratedProjectV1Schema } from "./generated-project.js";
 import { GenerationPlanV1Schema } from "./generation-plan.js";
@@ -45,6 +46,7 @@ export const GenerationStatusResponseSchema = z.object({
     activeStage: PipelineStageNameSchema.nullable(),
     stages: z.array(PipelineStageLogEntrySchema),
     outputs: GenerationOutputsSchema,
+    analysis: AnalysisMetadataSchema.nullable(),
     errors: z.array(GenerationErrorSchema),
     durations: GenerationDurationsSchema,
 });

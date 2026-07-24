@@ -1,5 +1,5 @@
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
-import { ErrorCode } from "@reactify/shared";
+import { ErrorCode, } from "@reactify/shared";
 import { NoopPipelineLogger } from "./logger.js";
 function shouldSkipStage(stage, flags) {
     if (stage === "automatic_repair" && !flags.enableRepair) {
@@ -18,11 +18,13 @@ export class PipelineRunner {
     store;
     imageStorage;
     flags;
-    constructor(registry, store, imageStorage, flags) {
+    services;
+    constructor(registry, store, imageStorage, flags, services) {
         this.registry = registry;
         this.store = store;
         this.imageStorage = imageStorage;
         this.flags = flags;
+        this.services = services;
     }
     start(input) {
         const record = this.store.create(input);
@@ -45,6 +47,9 @@ export class PipelineRunner {
             imageId: record.imageId,
             logger,
             flags: this.flags,
+            aiProvider: this.services.aiProvider,
+            loadPrompt: this.services.loadPrompt,
+            aiConfig: this.services.aiConfig,
             failStage: record.failStage,
         };
         for (const stageName of PIPELINE_STAGE_ORDER) {

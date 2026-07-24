@@ -1,4 +1,5 @@
-import type { DesignAnalysisV1, GeneratedProjectV1, GenerationPlanV1, PipelineStageLogEntry, PipelineStageName } from "@reactify/generation-contracts";
+import type { AnalysisMetadata } from "@reactify/generation-contracts";
+import type { AIImageInput } from "@reactify/shared";
 import type { AllowedImageMimeType } from "@reactify/shared";
 import type { GenerationUserStatus } from "@reactify/generation-contracts";
 export interface PipelineState {
@@ -6,13 +7,15 @@ export interface PipelineState {
     imageMimeType?: AllowedImageMimeType;
     imageSizeBytes?: number;
     imageBase64?: string;
-    designAnalysis?: DesignAnalysisV1;
-    generationPlan?: GenerationPlanV1;
-    generatedProject?: GeneratedProjectV1;
+    imageInput?: AIImageInput;
+    designAnalysis?: import("@reactify/generation-contracts").DesignAnalysisV1;
+    generationPlan?: import("@reactify/generation-contracts").GenerationPlanV1;
+    generatedProject?: import("@reactify/generation-contracts").GeneratedProjectV1;
     planConfirmed?: boolean;
+    analysisMetadata?: AnalysisMetadata;
 }
 export interface GenerationErrorRecord {
-    stage: PipelineStageName;
+    stage: import("@reactify/generation-contracts").PipelineStageName;
     code: string;
     message: string;
 }
@@ -21,16 +24,17 @@ export interface GenerationRecord {
     imageId: string;
     projectId: string;
     status: GenerationUserStatus;
-    activeStage: PipelineStageName | null;
-    stages: PipelineStageLogEntry[];
+    activeStage: import("@reactify/generation-contracts").PipelineStageName | null;
+    stages: import("@reactify/generation-contracts").PipelineStageLogEntry[];
     outputs: {
-        designAnalysis: DesignAnalysisV1 | null;
-        generationPlan: GenerationPlanV1 | null;
-        generatedProject: GeneratedProjectV1 | null;
+        designAnalysis: import("@reactify/generation-contracts").DesignAnalysisV1 | null;
+        generationPlan: import("@reactify/generation-contracts").GenerationPlanV1 | null;
+        generatedProject: import("@reactify/generation-contracts").GeneratedProjectV1 | null;
     };
+    analysis: AnalysisMetadata | null;
     errors: GenerationErrorRecord[];
     cancelled: boolean;
-    failStage?: PipelineStageName;
+    failStage?: import("@reactify/generation-contracts").PipelineStageName;
     createdAt: string;
     updatedAt: string;
 }

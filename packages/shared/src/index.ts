@@ -21,9 +21,21 @@ export {
   type ImageUploadResponse,
 } from "./upload.js";
 export {
+  type AIStageConfig,
+  type LoadedPrompt,
+  type LoadPromptFn,
   type PipelineContext,
   type PipelineLogger,
   type PipelineStage,
+  type PromptMeta,
   type StageExecutor,
   type StageResult,
 } from "./pipeline-types.js";
+export {
+  type AIImageInput,
+  type AIInput,
+  type AIInvocationOptions,
+  type AIInvocationResult,
+  type AIProvider,
+  type AITextInput,
+} from "./ai-provider.js";

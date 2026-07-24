@@ -59,6 +59,10 @@ describe("generation routes", () => {
     const body = statusResponse.json();
     expect(body.status).toBe("Ready");
     expect(body.outputs.designAnalysis).not.toBeNull();
+    expect(body.analysis).toMatchObject({
+      provider: "mock",
+      promptVersion: "1.0.0",
+    });
     expect(body.outputs.generationPlan).not.toBeNull();
     expect(body.outputs.generatedProject).not.toBeNull();
     expect(body.durations.totalMs).toBeGreaterThanOrEqual(0);

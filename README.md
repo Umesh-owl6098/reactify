@@ -32,12 +32,26 @@ pnpm --filter @reactify/web dev
 pnpm --filter @reactify/api dev
 ```
 
-Copy environment examples before running the API in production-like mode:
+Copy environment examples before running the API:
 
 ```bash
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 ```
+
+For real Anthropic design analysis, set these in `apps/api/.env`:
+
+```bash
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your-local-secret
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+AI_TIMEOUT_MS=60000
+AI_MAX_TOKENS=8192
+AI_TEMPERATURE=0.2
+```
+
+The API key is server-side only. Do not add `VITE_ANTHROPIC_API_KEY` or call Anthropic from the browser.
+Tests use `AI_PROVIDER=mock` and do not require a real API key.
 
 ## Quality checks
 
@@ -63,5 +77,5 @@ curl http://localhost:3001/health
 - `packages/generation-contracts` — Zod schemas and TypeScript contracts
 - `packages/test-utils` — test helpers and fixtures
 - `prisma/` — database schema (future tasks)
-- `prompts/` — versioned AI prompt files (future tasks)
+- `prompts/` — versioned AI prompt files
 - `docs/` — project documentation

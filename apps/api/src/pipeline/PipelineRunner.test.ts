@@ -1,15 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
+import { MockAIProvider } from "@reactify/test-utils";
 import { PipelineRunner } from "./PipelineRunner.js";
 import { StageRegistry, createDefaultRegistry } from "./registry.js";
 import { createStageExecutors } from "./stages/index.js";
 import { GenerationStore } from "./store.js";
 import { DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
 import { ImageStorage } from "../lib/imageStorage.js";
-import { createTestImage } from "../test/helpers.js";
+import { defaultLoadPrompt } from "../prompts/loader.js";
+import { createTestImage, testEnv } from "../test/helpers.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+function createRunnerServices() {
+  return {
+    aiProvider: new MockAIProvider(),
+    loadPrompt: defaultLoadPrompt,
+    aiConfig: {
+      model: testEnv.ANTHROPIC_MODEL,
+      temperature: testEnv.AI_TEMPERATURE,
+      maxTokens: testEnv.AI_MAX_TOKENS,
+      timeoutMs: testEnv.AI_TIMEOUT_MS,
+    },
+  };
+}
 
 describe("PipelineRunner", () => {
   let storageDir = "";
@@ -24,7 +39,13 @@ describe("PipelineRunner", () => {
     imageId = await createTestImage(storageDir);
     store = new GenerationStore();
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));
-    runner = new PipelineRunner(registry, store, imageStorage, DEFAULT_FEATURE_FLAGS);
+    runner = new PipelineRunner(
+      registry,
+      store,
+      imageStorage,
+      DEFAULT_FEATURE_FLAGS,
+      createRunnerServices(),
+    );
   });
 
   afterEach(async () => {
@@ -38,6 +59,10 @@ describe("PipelineRunner", () => {
     const record = store.get(generationId);
     expect(record?.status).toBe("Ready");
     expect(record?.outputs.designAnalysis).not.toBeNull();
+    expect(record?.analysis).toMatchObject({
+      provider: "mock",
+      promptVersion: "1.0.0",
+    });
     expect(record?.outputs.generationPlan).not.toBeNull();
     expect(record?.outputs.generatedProject).not.toBeNull();
     expect(record?.stages.some((stage) => stage.stage === "preview_ready" && stage.status === "completed")).toBe(

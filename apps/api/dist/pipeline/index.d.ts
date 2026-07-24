@@ -1,7 +1,14 @@
+import { type AIProvider, type LoadPromptFn } from "@reactify/shared";
+import type { Env } from "../env.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
 import { PipelineRunner } from "./PipelineRunner.js";
 import { GenerationStore } from "./store.js";
-export declare function createPipelineServices(imageStorage: ImageStorage): {
+export interface CreatePipelineServicesOptions {
+    env: Env;
+    aiProvider?: AIProvider;
+    loadPrompt?: LoadPromptFn;
+}
+export declare function createPipelineServices(imageStorage: ImageStorage, options: CreatePipelineServicesOptions): {
     store: GenerationStore;
     registry: import("./registry.js").StageRegistry;
     runner: PipelineRunner;

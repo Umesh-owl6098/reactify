@@ -1,4 +1,26 @@
 import type { PipelineStageName } from "@reactify/generation-contracts";
+import type { AIProvider } from "./ai-provider.js";
+
+export interface PromptMeta {
+  promptVersion: string;
+  schemaVersion: string;
+}
+
+export interface LoadedPrompt {
+  meta: PromptMeta;
+  content: string;
+}
+
+export type LoadPromptFn = (
+  name: "design-analysis" | "generation-plan" | "generation" | "repair",
+) => LoadedPrompt;
+
+export interface AIStageConfig {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+}
 
 export interface PipelineLogger {
   info(msg: string, meta?: Record<string, unknown>): void;
@@ -25,6 +47,9 @@ export interface PipelineContext {
   imageId: string;
   logger: PipelineLogger;
   flags: import("./feature-flags.js").FeatureFlags;
+  aiProvider: AIProvider;
+  loadPrompt: LoadPromptFn;
+  aiConfig: AIStageConfig;
   failStage?: PipelineStageName;
 }
 

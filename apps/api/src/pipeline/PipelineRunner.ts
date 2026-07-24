@@ -1,6 +1,14 @@
 import type { PipelineStageName } from "@reactify/generation-contracts";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
-import { ErrorCode, type FeatureFlags, type PipelineContext, type StageResult } from "@reactify/shared";
+import {
+  ErrorCode,
+  type AIStageConfig,
+  type FeatureFlags,
+  type LoadPromptFn,
+  type PipelineContext,
+  type StageResult,
+  type AIProvider,
+} from "@reactify/shared";
 import type { ImageStorage } from "../lib/imageStorage.js";
 import { NoopPipelineLogger } from "./logger.js";
 import type { StageRegistry } from "./registry.js";
@@ -23,12 +31,19 @@ function mergeState(state: PipelineState, output: unknown): PipelineState {
   return { ...state, ...(output as Partial<PipelineState>) };
 }
 
+export interface PipelineRunnerServices {
+  aiProvider: AIProvider;
+  loadPrompt: LoadPromptFn;
+  aiConfig: AIStageConfig;
+}
+
 export class PipelineRunner {
   constructor(
     private readonly registry: StageRegistry,
     private readonly store: GenerationStore,
     private readonly imageStorage: ImageStorage,
     private readonly flags: FeatureFlags,
+    private readonly services: PipelineRunnerServices,
   ) {}
 
   start(input: { imageId: string; projectId?: string; failStage?: PipelineStageName }): string {
@@ -55,6 +70,9 @@ export class PipelineRunner {
       imageId: record.imageId,
       logger,
       flags: this.flags,
+      aiProvider: this.services.aiProvider,
+      loadPrompt: this.services.loadPrompt,
+      aiConfig: this.services.aiConfig,
       failStage: record.failStage,
     };
 

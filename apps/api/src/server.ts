@@ -25,7 +25,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   const storage = new ImageStorage(storageDir);
   await storage.ensureReady();
 
-  const pipeline = options.pipeline ?? createPipelineServices(storage);
+  const pipeline = options.pipeline ?? createPipelineServices(storage, { env });
 
   await app.register(cors, {
     origin: getAllowedOrigins(env),

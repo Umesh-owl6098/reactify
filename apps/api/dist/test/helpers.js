@@ -11,15 +11,23 @@ export const testEnv = {
     IMAGE_MAX_BYTES: 10_485_760,
     IMAGE_STORAGE_DIR: "storage/images",
     ALLOWED_ORIGINS: "http://localhost:5173",
+    AI_PROVIDER: "mock",
+    ANTHROPIC_MODEL: "claude-3-5-sonnet-20241022",
+    AI_TIMEOUT_MS: 60_000,
+    AI_MAX_TOKENS: 8192,
+    AI_TEMPERATURE: 0.2,
 };
 export async function createTestImage(storageDir) {
     const storage = new ImageStorage(storageDir);
     const stored = await storage.save(PNG_1X1, "image/png");
     return stored.imageId;
 }
-export async function createTestServer(storageDir) {
-    const resolvedStorageDir = storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
-    const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir));
+export async function createTestServer(options = {}) {
+    const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
+    const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
+        env: testEnv,
+        aiProvider: options.aiProvider,
+    });
     const app = await buildServer(testEnv, {
         storageDir: resolvedStorageDir,
         pipeline,

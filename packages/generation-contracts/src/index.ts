@@ -1,3 +1,4 @@
+export { AnalysisMetadataSchema, type AnalysisMetadata } from "./analysis-metadata.js";
 export { AIResponseEnvelopeSchema, type AIResponseEnvelope } from "./envelope.js";
 export {
   ColorTokenSchema,
