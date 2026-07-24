@@ -61,12 +61,28 @@ export function useGeneration() {
     };
   }, [generationId, isPolling, setError, setPolling, setStatus]);
 
+  const resumePolling = useCallback(async () => {
+    if (!generationId) {
+      return;
+    }
+
+    setPolling(true);
+    setError("");
+    const nextStatus = await fetchGenerationStatus(generationId);
+    setStatus(nextStatus);
+
+    if (isTerminalGenerationStatus(nextStatus.status)) {
+      setPolling(false);
+    }
+  }, [generationId, setError, setPolling, setStatus]);
+
   return {
     generationId,
     status,
     error,
     isPolling,
     beginGeneration,
+    resumePolling,
     reset,
   };
 }

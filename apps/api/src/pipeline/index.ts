@@ -1,5 +1,6 @@
-import { DEFAULT_FEATURE_FLAGS, type AIProvider, type LoadPromptFn } from "@reactify/shared";
+import type { AIProvider, LoadPromptFn } from "@reactify/shared";
 import type { Env } from "../env.js";
+import { resolveFeatureFlags } from "../env.js";
 import { defaultLoadPrompt } from "../prompts/loader.js";
 import { createAIProvider } from "../providers/providerFactory.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
@@ -18,7 +19,8 @@ export function createPipelineServices(
   imageStorage: ImageStorage,
   options: CreatePipelineServicesOptions,
 ) {
-  const store = new GenerationStore();
+  const featureFlags = resolveFeatureFlags(options.env);
+  const store = new GenerationStore(featureFlags);
   const registry = createDefaultRegistry(createStageExecutors(imageStorage));
   const aiProvider = options.aiProvider ?? createAIProvider(options.env);
   const loadPrompt = options.loadPrompt ?? defaultLoadPrompt;
@@ -28,7 +30,7 @@ export function createPipelineServices(
     maxTokens: options.env.AI_MAX_TOKENS,
     timeoutMs: options.env.AI_TIMEOUT_MS,
   };
-  const runner = new PipelineRunner(registry, store, imageStorage, DEFAULT_FEATURE_FLAGS, {
+  const runner = new PipelineRunner(registry, store, imageStorage, featureFlags, {
     aiProvider,
     loadPrompt,
     aiConfig,

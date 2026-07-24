@@ -29,7 +29,7 @@ export interface PipelineLogger {
 }
 
 export interface StageResult<T = unknown> {
-  status: "completed" | "failed" | "skipped";
+  status: "completed" | "failed" | "skipped" | "paused";
   output?: T;
   errorCode?: string;
   errorMessage?: string;

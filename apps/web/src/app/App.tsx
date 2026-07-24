@@ -1,20 +1,24 @@
 import { useEffect } from "react";
 import { APP_VERSION } from "@reactify/shared";
+import { GenerationPlanReview } from "../features/plan/GenerationPlanReview";
 import { PipelineStatus } from "../features/generation/PipelineStatus";
 import { useGeneration } from "../features/generation/useGeneration";
+import { isAwaitingPlanReview } from "../lib/generation-api";
 import { ImagePreview } from "../features/upload/ImagePreview";
 import { UploadZone } from "../features/upload/UploadZone";
 import { useUploadStore } from "../features/upload/uploadStore";
 
 export function App() {
   const upload = useUploadStore((state) => state.upload);
-  const { status, error, isPolling, beginGeneration } = useGeneration();
+  const { status, error, isPolling, beginGeneration, resumePolling, reset } = useGeneration();
 
   useEffect(() => {
     if (upload?.imageId) {
       void beginGeneration(upload.imageId);
     }
   }, [upload?.imageId, beginGeneration]);
+
+  const awaitingPlanReview = status ? isAwaitingPlanReview(status) : false;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-50">
@@ -35,6 +39,15 @@ export function App() {
           <ImagePreview />
         </div>
         <div className="mt-10 w-full max-w-2xl">
+          {awaitingPlanReview && status ? (
+            <GenerationPlanReview
+              status={status}
+              onConfirmed={() => {
+                void resumePolling();
+              }}
+              onCancelled={reset}
+            />
+          ) : null}
           <PipelineStatus status={status} isPolling={isPolling} error={error} />
         </div>
       </main>

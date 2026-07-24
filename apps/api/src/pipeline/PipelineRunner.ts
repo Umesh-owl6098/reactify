@@ -31,6 +31,15 @@ function mergeState(state: PipelineState, output: unknown): PipelineState {
   return { ...state, ...(output as Partial<PipelineState>) };
 }
 
+function getStageStartIndex(fromStage?: PipelineStageName): number {
+  if (!fromStage) {
+    return 0;
+  }
+
+  const index = PIPELINE_STAGE_ORDER.indexOf(fromStage);
+  return index >= 0 ? index : 0;
+}
+
 export interface PipelineRunnerServices {
   aiProvider: AIProvider;
   loadPrompt: LoadPromptFn;
@@ -38,6 +47,8 @@ export interface PipelineRunnerServices {
 }
 
 export class PipelineRunner {
+  private readonly runningGenerations = new Set<string>();
+
   constructor(
     private readonly registry: StageRegistry,
     private readonly store: GenerationStore,
@@ -56,103 +67,165 @@ export class PipelineRunner {
     return this.store.cancel(generationId);
   }
 
-  async run(generationId: string): Promise<void> {
+  confirmPlan(
+    generationId: string,
+    plan: import("@reactify/generation-contracts").GenerationPlanV1,
+    editedByUser: boolean,
+  ): { ok: true } | { ok: false; reason: string } {
+    const result = this.store.confirmPlan({ generationId, plan, editedByUser });
+    if (!result.ok) {
+      return { ok: false, reason: result.reason };
+    }
+
+    void this.resume(generationId);
+    return { ok: true };
+  }
+
+  async resume(generationId: string): Promise<void> {
+    await this.run(generationId, "react_project_generation");
+  }
+
+  async run(generationId: string, fromStage?: PipelineStageName): Promise<void> {
+    if (this.runningGenerations.has(generationId)) {
+      return;
+    }
+
     const record = this.store.get(generationId);
     if (!record) {
       return;
     }
 
-    let state: PipelineState = { imageId: record.imageId };
-    const logger = new NoopPipelineLogger();
-    const context: PipelineContext = {
-      generationId: record.id,
-      projectId: record.projectId,
-      imageId: record.imageId,
-      logger,
-      flags: this.flags,
-      aiProvider: this.services.aiProvider,
-      loadPrompt: this.services.loadPrompt,
-      aiConfig: this.services.aiConfig,
-      failStage: record.failStage,
-    };
-
-    for (const stageName of PIPELINE_STAGE_ORDER) {
-      const current = this.store.get(generationId);
-      if (!current) {
-        return;
-      }
-
-      if (current.cancelled) {
-        current.activeStage = null;
-        current.status = "Cancelled";
-        return;
-      }
-
-      if (shouldSkipStage(stageName, this.flags)) {
-        this.store.markStageRunning(current, stageName);
-        this.store.markStageFinished(current, stageName, {
-          status: "skipped",
-          durationMs: 0,
-        });
-        continue;
-      }
-
-      let executor;
-      try {
-        executor = this.registry.get(stageName);
-      } catch (error) {
-        current.status = "Failed";
-        current.activeStage = null;
-        current.errors.push({
-          stage: stageName,
-          code: ErrorCode.INTERNAL_ERROR,
-          message: error instanceof Error ? error.message : "Invalid stage registration",
-        });
-        return;
-      }
-
-      this.store.markStageRunning(current, stageName);
-
-      const result = await this.executeStageSafely(
-        executor,
-        state,
-        context,
-        stageName,
-        current.failStage,
-      );
-
-      this.store.markStageFinished(current, stageName, {
-        status: result.status === "completed" ? "completed" : result.status === "skipped" ? "skipped" : "failed",
-        durationMs: result.durationMs,
-        errorCode: result.errorCode,
-        errorMessage: result.errorMessage,
-      });
-
-      if (result.status === "failed") {
-        current.status = "Failed";
-        current.activeStage = null;
-        current.errors.push({
-          stage: stageName,
-          code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
-          message: result.errorMessage ?? "Stage failed",
-        });
-        return;
-      }
-
-      if (result.status === "completed" && result.output) {
-        state = mergeState(state, result.output);
-        this.store.applyStateOutputs(current, state);
-      }
-    }
-
-    const finished = this.store.get(generationId);
-    if (!finished || finished.cancelled) {
+    if (record.cancelled) {
       return;
     }
 
-    finished.status = "Ready";
-    finished.activeStage = null;
-    finished.updatedAt = new Date().toISOString();
+    this.runningGenerations.add(generationId);
+
+    try {
+      let state: PipelineState =
+        record.pipelineState ?? {
+          imageId: record.imageId,
+          designAnalysis: record.outputs.designAnalysis ?? undefined,
+          generationPlan: record.outputs.generationPlan ?? undefined,
+          planConfirmed: record.confirmedAt ? true : undefined,
+          analysisMetadata: record.analysis ?? undefined,
+          planMetadata: record.plan ?? undefined,
+        };
+
+      const logger = new NoopPipelineLogger();
+      const context: PipelineContext = {
+        generationId: record.id,
+        projectId: record.projectId,
+        imageId: record.imageId,
+        logger,
+        flags: this.flags,
+        aiProvider: this.services.aiProvider,
+        loadPrompt: this.services.loadPrompt,
+        aiConfig: this.services.aiConfig,
+        failStage: record.failStage,
+      };
+
+      const startIndex = getStageStartIndex(fromStage);
+
+      for (const stageName of PIPELINE_STAGE_ORDER.slice(startIndex)) {
+        const current = this.store.get(generationId);
+        if (!current) {
+          return;
+        }
+
+        if (current.cancelled) {
+          current.activeStage = null;
+          current.status = "Cancelled";
+          return;
+        }
+
+        if (shouldSkipStage(stageName, this.flags)) {
+          this.store.markStageRunning(current, stageName);
+          this.store.markStageFinished(current, stageName, {
+            status: "skipped",
+            durationMs: 0,
+          });
+          continue;
+        }
+
+        let executor;
+        try {
+          executor = this.registry.get(stageName);
+        } catch (error) {
+          current.status = "Failed";
+          current.activeStage = null;
+          current.errors.push({
+            stage: stageName,
+            code: ErrorCode.INTERNAL_ERROR,
+            message: error instanceof Error ? error.message : "Invalid stage registration",
+          });
+          return;
+        }
+
+        this.store.markStageRunning(current, stageName);
+
+        const result = await this.executeStageSafely(
+          executor,
+          state,
+          context,
+          stageName,
+          current.failStage,
+        );
+
+        if (result.status === "paused") {
+          this.store.markStageAwaitingConfirmation(current, stageName);
+          this.store.applyStateOutputs(current, state);
+          this.store.pauseForPlanReview(current, state);
+          return;
+        }
+
+        this.store.markStageFinished(current, stageName, {
+          status:
+            result.status === "completed"
+              ? "completed"
+              : result.status === "skipped"
+                ? "skipped"
+                : "failed",
+          durationMs: result.durationMs,
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+        });
+
+        if (result.status === "failed") {
+          current.status = "Failed";
+          current.activeStage = null;
+          current.errors.push({
+            stage: stageName,
+            code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
+            message: result.errorMessage ?? "Stage failed",
+          });
+          return;
+        }
+
+        if (result.status === "completed" && result.output) {
+          state = mergeState(state, result.output);
+          this.store.applyStateOutputs(current, state);
+        }
+      }
+
+      const finished = this.store.get(generationId);
+      if (!finished || finished.cancelled) {
+        return;
+      }
+
+      finished.status = "Ready";
+      finished.activeStage = null;
+      finished.awaitingPlanConfirmation = false;
+      finished.pipelineState = null;
+      finished.resumeInProgress = false;
+      finished.updatedAt = new Date().toISOString();
+    } finally {
+      this.runningGenerations.delete(generationId);
+      const finished = this.store.get(generationId);
+      if (finished?.resumeInProgress && finished.status !== "Planning") {
+        this.store.completeResume(finished);
+      }
+    }
   }
 
   private async executeStageSafely(

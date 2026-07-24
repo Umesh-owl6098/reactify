@@ -1,8 +1,7 @@
+import { ALLOWED_DEPENDENCIES } from "../../lib/allowlist.js";
 import type { StageResult } from "@reactify/shared";
 import type { PipelineState } from "../types.js";
 import type { StageExecutor } from "@reactify/shared";
-
-const ALLOWED_DEPENDENCIES = new Set(["react", "react-dom"]);
 
 export const staticValidationStage: StageExecutor = async (input: unknown) => {
   const state = input as PipelineState;

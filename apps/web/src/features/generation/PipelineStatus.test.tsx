@@ -54,6 +54,13 @@ const readyStatus: GenerationStatusResponse = {
     temperature: 0.2,
     generatedAt: "2026-01-01T00:00:00.000Z",
   },
+  plan: null,
+  editedByUser: false,
+  confirmedAt: null,
+  awaitingPlanConfirmation: false,
+  featureFlags: {
+    enableGenerationPlanEditing: true,
+  },
   durations: { totalMs: 10, stages: {} },
 };
 

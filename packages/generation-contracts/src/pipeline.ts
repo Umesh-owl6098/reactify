@@ -18,6 +18,7 @@ export const PipelineStageNameSchema = z.enum([
 export const PipelineStageStatusSchema = z.enum([
   "pending",
   "running",
+  "awaiting_confirmation",
   "completed",
   "failed",
   "skipped",

@@ -7,5 +7,6 @@ export {
 export {
   MockAIProvider,
   createDesignAnalysisFixtureJson,
+  createGenerationPlanFixtureJson,
   type MockAIProviderOptions,
 } from "./MockAIProvider.js";

@@ -35,6 +35,7 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
   const analysisError = status?.errors.find((entry) => entry.stage === "design_analysis");
   const designAnalysis = status?.outputs.designAnalysis;
   const analysisMetadata = status?.analysis;
+  const isPlanningReview = status?.status === "Planning" && status.awaitingPlanConfirmation;
   const isAnalyzing = activeStatus === "Analyzing" && isPolling;
   const analysisCompleted = Boolean(designAnalysis && analysisMetadata);
   const analysisFailed = Boolean(analysisError);
@@ -96,6 +97,12 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
               </p>
             ) : null}
           </div>
+
+          {isPlanningReview ? (
+            <StatusBanner tone="info" title="Awaiting plan confirmation">
+              Review the generated plan and confirm before mocked code generation continues.
+            </StatusBanner>
+          ) : null}
 
           {isAnalyzing ? (
             <StatusBanner tone="info" title="Analyzing screenshot">

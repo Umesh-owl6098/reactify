@@ -3,6 +3,7 @@ import { AnalysisMetadataSchema } from "./analysis-metadata.js";
 import { DesignAnalysisV1Schema } from "./design-analysis.js";
 import { GeneratedProjectV1Schema } from "./generated-project.js";
 import { GenerationPlanV1Schema } from "./generation-plan.js";
+import { PlanMetadataSchema } from "./plan-metadata.js";
 import { PipelineStageLogEntrySchema, PipelineStageNameSchema } from "./pipeline.js";
 
 export const GenerationUserStatusSchema = z.enum([
@@ -36,6 +37,10 @@ export const GenerationDurationsSchema = z.object({
   stages: z.record(z.number().nonnegative()),
 });
 
+export const GenerationFeatureFlagsSchema = z.object({
+  enableGenerationPlanEditing: z.boolean(),
+});
+
 export const CreateGenerationRequestSchema = z.object({
   imageId: z.string().uuid(),
   projectId: z.string().uuid().optional(),
@@ -43,6 +48,18 @@ export const CreateGenerationRequestSchema = z.object({
 
 export const CreateGenerationResponseSchema = z.object({
   generationId: z.string().uuid(),
+});
+
+export const ConfirmPlanRequestSchema = z.object({
+  plan: GenerationPlanV1Schema,
+});
+
+export const ConfirmPlanResponseSchema = z.object({
+  status: GenerationUserStatusSchema,
+});
+
+export const CancelGenerationResponseSchema = z.object({
+  status: z.literal("Cancelled"),
 });
 
 export const GenerationStatusResponseSchema = z.object({
@@ -54,6 +71,11 @@ export const GenerationStatusResponseSchema = z.object({
   stages: z.array(PipelineStageLogEntrySchema),
   outputs: GenerationOutputsSchema,
   analysis: AnalysisMetadataSchema.nullable(),
+  plan: PlanMetadataSchema.nullable(),
+  editedByUser: z.boolean(),
+  confirmedAt: z.string().datetime().nullable(),
+  awaitingPlanConfirmation: z.boolean(),
+  featureFlags: GenerationFeatureFlagsSchema,
   errors: z.array(GenerationErrorSchema),
   durations: GenerationDurationsSchema,
 });
@@ -61,4 +83,7 @@ export const GenerationStatusResponseSchema = z.object({
 export type GenerationUserStatus = z.infer<typeof GenerationUserStatusSchema>;
 export type CreateGenerationRequest = z.infer<typeof CreateGenerationRequestSchema>;
 export type CreateGenerationResponse = z.infer<typeof CreateGenerationResponseSchema>;
+export type ConfirmPlanRequest = z.infer<typeof ConfirmPlanRequestSchema>;
+export type ConfirmPlanResponse = z.infer<typeof ConfirmPlanResponseSchema>;
+export type CancelGenerationResponse = z.infer<typeof CancelGenerationResponseSchema>;
 export type GenerationStatusResponse = z.infer<typeof GenerationStatusResponseSchema>;

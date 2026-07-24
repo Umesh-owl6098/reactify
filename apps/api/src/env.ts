@@ -12,6 +12,10 @@ const EnvSchema = z.object({
   AI_TIMEOUT_MS: z.coerce.number().default(60_000),
   AI_MAX_TOKENS: z.coerce.number().default(8192),
   AI_TEMPERATURE: z.coerce.number().default(0.2),
+  ENABLE_REPAIR: z.coerce.boolean().default(true),
+  ENABLE_INSPECTOR: z.coerce.boolean().default(true),
+  ENABLE_ACCESSIBILITY: z.coerce.boolean().default(true),
+  ENABLE_GENERATION_PLAN_EDITING: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -41,4 +45,13 @@ export function getAllowedOrigins(env: Env): string[] {
   return env.ALLOWED_ORIGINS.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+export function resolveFeatureFlags(env: Env): import("@reactify/shared").FeatureFlags {
+  return {
+    enableRepair: env.ENABLE_REPAIR,
+    enableInspector: env.ENABLE_INSPECTOR,
+    enableAccessibility: env.ENABLE_ACCESSIBILITY,
+    enableGenerationPlanEditing: env.ENABLE_GENERATION_PLAN_EDITING,
+  };
 }

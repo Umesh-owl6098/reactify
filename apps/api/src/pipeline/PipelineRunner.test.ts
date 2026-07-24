@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
-import { MockAIProvider } from "@reactify/test-utils";
+import { MockAIProvider, generationPlanFixture } from "@reactify/test-utils";
 import { PipelineRunner } from "./PipelineRunner.js";
 import { StageRegistry, createDefaultRegistry } from "./registry.js";
 import { createStageExecutors } from "./stages/index.js";
@@ -37,7 +37,7 @@ describe("PipelineRunner", () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-pipeline-"));
     imageStorage = new ImageStorage(storageDir);
     imageId = await createTestImage(storageDir);
-    store = new GenerationStore();
+    store = new GenerationStore(DEFAULT_FEATURE_FLAGS);
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));
     runner = new PipelineRunner(
       registry,
@@ -52,22 +52,60 @@ describe("PipelineRunner", () => {
     // temp dirs cleaned by OS
   });
 
-  it("runs a successful pipeline through all stages", async () => {
+  it("pauses at plan review before code generation", async () => {
     const generationId = store.create({ imageId }).id;
     await runner.run(generationId);
 
     const record = store.get(generationId);
-    expect(record?.status).toBe("Ready");
-    expect(record?.outputs.designAnalysis).not.toBeNull();
-    expect(record?.analysis).toMatchObject({
-      provider: "mock",
-      promptVersion: "1.0.0",
-    });
+    expect(record?.status).toBe("Planning");
+    expect(record?.awaitingPlanConfirmation).toBe(true);
     expect(record?.outputs.generationPlan).not.toBeNull();
+    expect(record?.plan).toMatchObject({ provider: "mock", promptVersion: "1.0.0" });
+    expect(record?.outputs.generatedProject).toBeNull();
+    expect(record?.stages.some((stage) => stage.stage === "generation_plan_review" && stage.status === "awaiting_confirmation")).toBe(true);
+    expect(record?.stages.some((stage) => stage.stage === "react_project_generation")).toBe(false);
+  });
+
+  it("resumes after plan confirmation and completes mocked later stages", async () => {
+    const generationId = store.create({ imageId }).id;
+    await runner.run(generationId);
+
+    const confirmResult = runner.confirmPlan(generationId, generationPlanFixture, false);
+    expect(confirmResult.ok).toBe(true);
+
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      const record = store.get(generationId);
+      if (record?.status === "Ready") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const record = store.get(generationId);
+    expect(record?.status).toBe("Ready");
+    expect(record?.confirmedAt).not.toBeNull();
+    expect(record?.editedByUser).toBe(false);
     expect(record?.outputs.generatedProject).not.toBeNull();
-    expect(record?.stages.some((stage) => stage.stage === "preview_ready" && stage.status === "completed")).toBe(
-      true,
-    );
+  });
+
+  it("does not start duplicate resumes on repeated confirmation", async () => {
+    const generationId = store.create({ imageId }).id;
+    await runner.run(generationId);
+
+    expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
+
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      const record = store.get(generationId);
+      if (record?.status === "Ready") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const secondConfirm = runner.confirmPlan(generationId, generationPlanFixture, false);
+    expect(secondConfirm.ok).toBe(false);
   });
 
   it("marks the pipeline failed when a stage fails", async () => {
@@ -96,8 +134,9 @@ describe("PipelineRunner", () => {
     const record = store.get(generationId);
     const stageNames = record?.stages.map((entry) => entry.stage) ?? [];
 
-    expect(stageNames).toEqual(expect.arrayContaining(["upload_validation", "design_analysis", "preview_ready"]));
-    expect(record?.durations).toBeUndefined();
+    expect(stageNames).toEqual(
+      expect.arrayContaining(["upload_validation", "design_analysis", "generation_plan_review"]),
+    );
     expect(store.toSnapshot(record!).durations.totalMs).toBeGreaterThanOrEqual(0);
   });
 });

@@ -1,4 +1,4 @@
-import type { AnalysisMetadata } from "@reactify/generation-contracts";
+import type { PlanMetadata } from "@reactify/generation-contracts";
 import type { AIImageInput } from "@reactify/shared";
 import type { AllowedImageMimeType } from "@reactify/shared";
 import type { GenerationUserStatus } from "@reactify/generation-contracts";
@@ -13,7 +13,8 @@ export interface PipelineState {
   generationPlan?: import("@reactify/generation-contracts").GenerationPlanV1;
   generatedProject?: import("@reactify/generation-contracts").GeneratedProjectV1;
   planConfirmed?: boolean;
-  analysisMetadata?: AnalysisMetadata;
+  analysisMetadata?: import("@reactify/generation-contracts").AnalysisMetadata;
+  planMetadata?: PlanMetadata;
 }
 
 export interface GenerationErrorRecord {
@@ -34,7 +35,13 @@ export interface GenerationRecord {
     generationPlan: import("@reactify/generation-contracts").GenerationPlanV1 | null;
     generatedProject: import("@reactify/generation-contracts").GeneratedProjectV1 | null;
   };
-  analysis: AnalysisMetadata | null;
+  analysis: import("@reactify/generation-contracts").AnalysisMetadata | null;
+  plan: PlanMetadata | null;
+  editedByUser: boolean;
+  confirmedAt: string | null;
+  awaitingPlanConfirmation: boolean;
+  pipelineState: PipelineState | null;
+  resumeInProgress: boolean;
   errors: GenerationErrorRecord[];
   cancelled: boolean;
   failStage?: import("@reactify/generation-contracts").PipelineStageName;
@@ -42,9 +49,15 @@ export interface GenerationRecord {
   updatedAt: string;
 }
 
-export interface GenerationStoreSnapshot extends Omit<GenerationRecord, "cancelled" | "failStage"> {
+export interface GenerationStoreSnapshot extends Omit<
+  GenerationRecord,
+  "cancelled" | "failStage" | "pipelineState" | "resumeInProgress"
+> {
   durations: {
     totalMs: number;
     stages: Record<string, number>;
+  };
+  featureFlags: {
+    enableGenerationPlanEditing: boolean;
   };
 }

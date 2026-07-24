@@ -23,6 +23,10 @@ export const testEnv: Env = {
   AI_TIMEOUT_MS: 60_000,
   AI_MAX_TOKENS: 8192,
   AI_TEMPERATURE: 0.2,
+  ENABLE_REPAIR: true,
+  ENABLE_INSPECTOR: true,
+  ENABLE_ACCESSIBILITY: true,
+  ENABLE_GENERATION_PLAN_EDITING: true,
 };
 
 export async function createTestImage(storageDir: string): Promise<string> {
@@ -50,7 +54,7 @@ export async function createTestServer(options: { aiProvider?: AIProvider; stora
 }
 
 export async function waitForGenerationStatus(
-  getStatus: () => Promise<{ status: string }>,
+  getStatus: () => Promise<{ status: string; awaitingPlanConfirmation?: boolean }>,
   expected: string,
   timeoutMs = 3000,
 ): Promise<void> {

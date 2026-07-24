@@ -1,4 +1,5 @@
 export { AnalysisMetadataSchema, type AnalysisMetadata } from "./analysis-metadata.js";
+export { PlanMetadataSchema, type PlanMetadata } from "./plan-metadata.js";
 export { AIResponseEnvelopeSchema, type AIResponseEnvelope } from "./envelope.js";
 export {
   ColorTokenSchema,
@@ -10,13 +11,20 @@ export {
   type DesignAnalysisV1,
 } from "./design-analysis.js";
 export {
+  CancelGenerationResponseSchema,
+  ConfirmPlanRequestSchema,
+  ConfirmPlanResponseSchema,
   CreateGenerationRequestSchema,
   CreateGenerationResponseSchema,
   GenerationDurationsSchema,
   GenerationErrorSchema,
+  GenerationFeatureFlagsSchema,
   GenerationOutputsSchema,
   GenerationStatusResponseSchema,
   GenerationUserStatusSchema,
+  type CancelGenerationResponse,
+  type ConfirmPlanRequest,
+  type ConfirmPlanResponse,
   type CreateGenerationRequest,
   type CreateGenerationResponse,
   type GenerationStatusResponse,
