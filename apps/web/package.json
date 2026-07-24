@@ -16,7 +16,9 @@
     "@reactify/shared": "workspace:*",
     "@reactify/ui": "workspace:*",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.8",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@reactify/test-utils": "workspace:*",

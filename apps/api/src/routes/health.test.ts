@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
+import type { Env } from "../env.js";
 import { buildServer } from "../server.js";
+
+const testEnv: Env = {
+  PORT: 3001,
+  NODE_ENV: "test",
+  IMAGE_MAX_BYTES: 10_485_760,
+  IMAGE_STORAGE_DIR: "storage/images",
+  ALLOWED_ORIGINS: "http://localhost:5173",
+};
 
 describe("GET /health", () => {
   it("returns ok status with version and ISO timestamp", async () => {
-    const app = await buildServer({ PORT: 3001, NODE_ENV: "test" });
+    const app = await buildServer(testEnv);
 
     const response = await app.inject({
       method: "GET",

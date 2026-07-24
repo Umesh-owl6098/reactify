@@ -1,0 +1,4 @@
+
+> @reactify/test-utils@0.1.0 build /Users/umeshchowdaryballa/Desktop/reactify/packages/test-utils
+> tsc -p tsconfig.json
+

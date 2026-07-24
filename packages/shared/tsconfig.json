@@ -7,6 +7,7 @@
     "rootDir": "src",
     "composite": true
   },
+  "references": [{ "path": "../generation-contracts" }],
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
 }

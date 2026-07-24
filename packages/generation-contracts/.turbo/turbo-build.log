@@ -1,0 +1,4 @@
+
+> @reactify/generation-contracts@0.1.0 build /Users/umeshchowdaryballa/Desktop/reactify/packages/generation-contracts
+> tsc -p tsconfig.json
+

@@ -1,0 +1,4 @@
+
+> @reactify/shared@0.1.0 build /Users/umeshchowdaryballa/Desktop/reactify/packages/shared
+> tsc -p tsconfig.json
+

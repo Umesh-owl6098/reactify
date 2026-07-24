@@ -1,35 +1,3 @@
-# Dependencies
-node_modules/
-.pnpm-store/
-
-# Build outputs
-dist/
-build/
-.turbo/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-npm-debug.log*
-pnpm-debug.log*
-
-# Editor
-.vscode/*
-!.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Test coverage
-coverage/
-
-# Vite
-*.local
+# Uploaded images (local development storage)
+storage/images/*
+!storage/images/.gitkeep

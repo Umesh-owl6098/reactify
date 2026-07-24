@@ -1,0 +1,15 @@
+
+> @reactify/shared@0.1.0 test /Users/umeshchowdaryballa/Desktop/reactify/packages/shared
+> vitest run
+
+
+ RUN  v3.2.7 /Users/umeshchowdaryballa/Desktop/reactify/packages/shared
+
+ ✓ src/constants.test.ts (1 test) 1ms
+ ✓ src/upload.test.ts (2 tests) 4ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed (3)
+   Start at  22:47:08
+   Duration  571ms (transform 102ms, setup 0ms, collect 192ms, tests 5ms, environment 0ms, prepare 255ms)
+

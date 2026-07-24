@@ -1,0 +1,14 @@
+
+> @reactify/generation-contracts@0.1.0 test /Users/umeshchowdaryballa/Desktop/reactify/packages/generation-contracts
+> vitest run
+
+
+ RUN  v3.2.7 /Users/umeshchowdaryballa/Desktop/reactify/packages/generation-contracts
+
+ ✓ src/envelope.test.ts (2 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  22:47:09
+   Duration  315ms (transform 22ms, setup 0ms, collect 24ms, tests 2ms, environment 0ms, prepare 54ms)
+
