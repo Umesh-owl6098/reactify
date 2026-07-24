@@ -1,1 +1,0 @@
-{"version":3,"file":"sandboxCompilation.js","sourceRoot":"","sources":["../../../src/pipeline/stages/sandboxCompilation.ts"],"names":[],"mappings":"AAGA,MAAM,CAAC,MAAM,uBAAuB,GAAkB,KAAK,IAAI,EAAE;IAC/D,OAAO;QACL,MAAM,EAAE,WAAW;QACnB,UAAU,EAAE,CAAC;KACQ,CAAC;AAC1B,CAAC,CAAC"}
