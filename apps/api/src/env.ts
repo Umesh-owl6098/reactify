@@ -16,6 +16,9 @@ const EnvSchema = z.object({
   ENABLE_INSPECTOR: z.coerce.boolean().default(true),
   ENABLE_ACCESSIBILITY: z.coerce.boolean().default(true),
   ENABLE_GENERATION_PLAN_EDITING: z.coerce.boolean().default(true),
+  MAX_REPAIR_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  MAX_PATCH_FILE_BYTES: z.coerce.number().int().positive().default(512 * 1024),
+  MAX_PATCH_TOTAL_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

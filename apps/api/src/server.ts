@@ -7,6 +7,7 @@ import { getAllowedOrigins, type Env } from "./env.js";
 import { ImageStorage } from "./lib/imageStorage.js";
 import { createPipelineServices } from "./pipeline/index.js";
 import { registerGenerationRoutes } from "./routes/generations.js";
+import { registerRepairRoutes } from "./routes/repairs.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerImageRoutes } from "./routes/images.js";
 
@@ -41,6 +42,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   await registerHealthRoutes(app);
   await registerImageRoutes(app, env, storage);
   await registerGenerationRoutes(app, storage, pipeline.store, pipeline.runner);
+  await registerRepairRoutes(app, pipeline.store, pipeline.runner);
 
   return app;
 }

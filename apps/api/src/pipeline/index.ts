@@ -27,7 +27,7 @@ export function createPipelineServices(
   options: CreatePipelineServicesOptions,
 ) {
   const featureFlags = resolveFeatureFlags(options.env);
-  const store = new GenerationStore(featureFlags);
+  const store = new GenerationStore(featureFlags, options.env.MAX_REPAIR_ATTEMPTS);
   const registry = createDefaultRegistry(createStageExecutors(imageStorage));
   const aiProvider = options.aiProvider ?? createAIProvider(options.env);
   const loadPrompt = options.loadPrompt ?? defaultLoadPrompt;
@@ -37,10 +37,16 @@ export function createPipelineServices(
     maxTokens: options.env.AI_MAX_TOKENS,
     timeoutMs: options.env.AI_TIMEOUT_MS,
   };
+  const repairConfig = {
+    maxAttempts: options.env.MAX_REPAIR_ATTEMPTS,
+    maxPatchFileBytes: options.env.MAX_PATCH_FILE_BYTES,
+    maxPatchTotalBytes: options.env.MAX_PATCH_TOTAL_BYTES,
+  };
   const runner = new PipelineRunner(registry, store, imageStorage, featureFlags, {
     aiProvider,
     loadPrompt,
     aiConfig,
+    repairConfig,
   });
 
   return {

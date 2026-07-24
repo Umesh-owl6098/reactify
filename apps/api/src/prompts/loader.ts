@@ -7,7 +7,13 @@ import type { LoadedPrompt, LoadPromptFn } from "@reactify/shared";
 const PROMPTS_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../prompts");
 
 export function loadPrompt(
-  name: "design-analysis" | "generation-plan" | "react-project-generation" | "generation" | "repair",
+  name:
+    | "design-analysis"
+    | "generation-plan"
+    | "react-project-generation"
+    | "generation"
+    | "repair"
+    | "project-repair",
 ): LoadedPrompt {
   const raw = readFileSync(join(PROMPTS_DIR, `${name}.md`), "utf8");
   const { data, content } = matter(raw);

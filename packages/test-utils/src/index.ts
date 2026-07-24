@@ -3,6 +3,8 @@ export {
   designAnalysisFixture,
   generatedProjectFixture,
   generationPlanFixture,
+  projectPatchFixture,
+  createProjectPatchFixtureJson,
 } from "./fixtures/index.js";
 export {
   MockAIProvider,

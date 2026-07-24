@@ -27,6 +27,8 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
   const [activeTab, setActiveTab] = useState<"screenshot" | "code" | "preview" | "diagnostics">("code");
   const [loadedFiles, setLoadedFiles] = useState<Array<{ path: string; content: string }> | null>(null);
   const reloadToken = usePreviewStore((state) => state.reloadToken);
+  const reloadPreview = usePreviewStore((state) => state.reloadPreview);
+  const resetPreviewReport = usePreviewStore((state) => state.resetReportState);
   const viewport = usePreviewStore((state) => state.viewport);
   const fitToContainer = usePreviewStore((state) => state.fitToContainer);
   const actualSize = usePreviewStore((state) => state.actualSize);
@@ -37,6 +39,16 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
   useEffect(() => {
     resetPreview();
   }, [resetPreview, status.id]);
+
+  useEffect(() => {
+    if (!status.projectHash || !status.repair?.clientRevalidationRequired) {
+      return;
+    }
+
+    resetPreviewReport();
+    reloadPreview();
+    setLoadedFiles(null);
+  }, [reloadPreview, resetPreviewReport, status.projectHash, status.repair?.clientRevalidationRequired]);
 
   useEffect(() => {
     if (!project || !isAwaitingSandboxValidation(status)) {
@@ -61,7 +73,7 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
     return () => {
       cancelled = true;
     };
-  }, [project, setPhase, status]);
+  }, [project, setPhase, status, status.projectHash]);
 
   useEffect(() => {
     if (selectedDiagnosticPath) {
@@ -96,7 +108,9 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
           Generated project workspace
         </h2>
         <p className="mt-1 text-sm text-slate-300">
-          Review the screenshot, generated source, and browser-assisted Sandpack preview side by side.
+          {status.repair?.clientRevalidationRequired
+            ? "Revalidating repaired project in Sandpack with the latest patch."
+            : "Review the screenshot, generated source, and browser-assisted Sandpack preview side by side."}
         </p>
       </div>
 
@@ -155,7 +169,7 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
         <section className={`space-y-4 ${activeTab === "preview" || activeTab === "diagnostics" ? "block" : "hidden xl:block"}`}>
           {previewEnabled && sandpackProject ? (
             <SandpackProvider
-              key={`provider-${status.id}-${reloadToken}`}
+              key={`provider-${status.id}-${status.projectHash ?? "none"}-${reloadToken}`}
               template="react-ts"
               files={toSandpackFiles(sandpackProject, { activePath: selectedPath })}
               customSetup={{

@@ -118,6 +118,21 @@ function scanTypeScriptAst(content: string, filePath: string): ValidationIssue[]
   return issues;
 }
 
+export function scanSourceSafety(content: string, filePath = "patch"): { ok: true } | { ok: false; message: string } {
+  for (const rule of TEXT_RULES) {
+    if (rule.test(content, filePath)) {
+      return { ok: false, message: rule.message };
+    }
+  }
+
+  const astIssues = scanTypeScriptAst(content, filePath);
+  if (astIssues.length > 0) {
+    return { ok: false, message: astIssues[0]!.message };
+  }
+
+  return { ok: true };
+}
+
 export function scanGeneratedSourceSafety(project: GeneratedProjectV1): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 

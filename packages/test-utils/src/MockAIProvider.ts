@@ -8,6 +8,7 @@ import {
   designAnalysisFixture,
   generationPlanFixture,
   generatedProjectFixture,
+  projectPatchFixture,
 } from "./fixtures/index.js";
 
 export interface MockAIProviderOptions {
@@ -46,8 +47,11 @@ export class MockAIProvider implements AIProvider {
     } else if (this.callCount === 1) {
       rawText = JSON.stringify(generationPlanFixture);
       this.callCount += 1;
-    } else {
+    } else if (this.callCount === 2) {
       rawText = JSON.stringify(generatedProjectFixture);
+      this.callCount += 1;
+    } else {
+      rawText = JSON.stringify(projectPatchFixture);
       this.callCount += 1;
     }
 

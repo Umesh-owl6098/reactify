@@ -27,6 +27,11 @@ function createRunnerServices() {
       maxTokens: testEnv.AI_MAX_TOKENS,
       timeoutMs: testEnv.AI_TIMEOUT_MS,
     },
+    repairConfig: {
+      maxAttempts: testEnv.MAX_REPAIR_ATTEMPTS,
+      maxPatchFileBytes: testEnv.MAX_PATCH_FILE_BYTES,
+      maxPatchTotalBytes: testEnv.MAX_PATCH_TOTAL_BYTES,
+    },
   };
 }
 
@@ -41,7 +46,7 @@ describe("PipelineRunner", () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-pipeline-"));
     imageStorage = new ImageStorage(storageDir);
     imageId = await createTestImage(storageDir);
-    store = new GenerationStore(DEFAULT_FEATURE_FLAGS);
+    store = new GenerationStore(DEFAULT_FEATURE_FLAGS, testEnv.MAX_REPAIR_ATTEMPTS);
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));
     runner = new PipelineRunner(
       registry,

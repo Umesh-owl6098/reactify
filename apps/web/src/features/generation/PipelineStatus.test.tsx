@@ -65,6 +65,7 @@ const readyStatus: GenerationStatusResponse = {
   confirmedAt: null,
   awaitingPlanConfirmation: false,
   awaitingSandboxValidation: false,
+  repair: null,
   featureFlags: {
     enableGenerationPlanEditing: true,
   },

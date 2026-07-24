@@ -8,13 +8,17 @@ import type {
 import { GenerationPlanV1Schema } from "@reactify/generation-contracts";
 import { deriveUserStatus, type FeatureFlags } from "@reactify/shared";
 import { toGeneratedProjectSummary } from "../lib/generatedProjectResponse.js";
+import { buildRepairStatusSnapshot } from "../lib/repair/repairSnapshot.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
 import type { GenerationRecord, GenerationStoreSnapshot, PipelineState } from "./types.js";
 
 export class GenerationStore {
   private readonly records = new Map<string, GenerationRecord>();
 
-  constructor(private readonly featureFlags: FeatureFlags) {}
+  constructor(
+    private readonly featureFlags: FeatureFlags,
+    private readonly maxRepairAttempts: number,
+  ) {}
 
   create(input: {
     imageId: string;
@@ -42,6 +46,13 @@ export class GenerationStore {
       sandboxValidation: null,
       projectHash: null,
       validationReportFingerprint: null,
+      repairRequired: false,
+      repairStatus: "not_required",
+      currentRepairAttempt: 0,
+      maxRepairAttempts: this.maxRepairAttempts,
+      repairAttempts: [],
+      repairInProgress: false,
+      manualRetryAllowed: false,
       editedByUser: false,
       confirmedAt: null,
       awaitingPlanConfirmation: false,
@@ -75,6 +86,7 @@ export class GenerationStore {
     record.activeStage = null;
     record.awaitingPlanConfirmation = false;
     record.awaitingSandboxValidation = false;
+    record.repairInProgress = false;
     record.pipelineState = null;
     record.updatedAt = new Date().toISOString();
 
@@ -176,6 +188,24 @@ export class GenerationStore {
     record.staticValidation = state.staticValidation ?? null;
     record.sandboxValidation = state.sandboxValidation ?? null;
     record.projectHash = state.projectHash ?? record.projectHash;
+    record.repairRequired = state.repairRequired ?? record.repairRequired;
+    record.repairStatus = state.repairStatus ?? record.repairStatus;
+    record.currentRepairAttempt = state.currentRepairAttempt ?? record.currentRepairAttempt;
+    record.repairAttempts = state.repairAttempts ?? record.repairAttempts;
+    record.repairInProgress = state.repairInProgress ?? record.repairInProgress;
+    record.manualRetryAllowed = state.manualRetryAllowed ?? record.manualRetryAllowed;
+    if (state.validationReportFingerprint !== undefined) {
+      record.validationReportFingerprint = state.validationReportFingerprint;
+    }
+    if (state.generatedProject) {
+      record.outputs.generatedProject = state.generatedProject;
+    }
+    if (state.schemaValidation) {
+      record.schemaValidation = state.schemaValidation;
+    }
+    if (state.staticValidation) {
+      record.staticValidation = state.staticValidation;
+    }
   }
 
   pauseForSandboxValidation(record: GenerationRecord, state: PipelineState): void {
@@ -312,17 +342,45 @@ export class GenerationStore {
         validatedAt: input.report.validatedAt,
       },
       repairRequired,
-      repairImplemented: false,
+      repairImplemented: repairRequired,
       projectHash: input.report.projectHash,
       awaitingSandboxValidation: false,
     };
+
+    const latestAttempt = record.repairAttempts.at(-1);
+    if (latestAttempt && latestAttempt.status === "waiting_for_revalidation") {
+      latestAttempt.sandboxValidationAfter = state.sandboxValidation;
+      latestAttempt.completedAt = new Date().toISOString();
+      latestAttempt.status = runtimeSucceeded ? "succeeded" : "failed";
+      if (!runtimeSucceeded) {
+        latestAttempt.failureReason = "Browser revalidation failed after repair.";
+      }
+    }
+
+    if (runtimeSucceeded) {
+      state.repairRequired = false;
+      state.repairStatus = "succeeded";
+      record.repairRequired = false;
+      record.repairStatus = "succeeded";
+    } else {
+      state.repairRequired = true;
+      state.repairStatus = record.currentRepairAttempt >= record.maxRepairAttempts ? "exhausted" : "failed";
+      record.repairRequired = true;
+      record.repairStatus = state.repairStatus;
+    }
 
     record.pipelineState = state;
     record.sandboxValidation = state.sandboxValidation ?? null;
     record.validationReportFingerprint = input.reportFingerprint;
     record.awaitingSandboxValidation = false;
-    record.sandboxResumeInProgress = true;
-    record.status = "Repairing";
+    record.sandboxResumeInProgress = !runtimeSucceeded && record.currentRepairAttempt < record.maxRepairAttempts;
+    record.status = runtimeSucceeded
+      ? record.currentRepairAttempt > 0
+        ? "Repairing"
+        : "Compiling"
+      : record.currentRepairAttempt >= record.maxRepairAttempts
+        ? "RepairFailed"
+        : "Repairing";
     record.updatedAt = new Date().toISOString();
 
     this.markStageFinished(record, "sandbox_compilation", {
@@ -356,6 +414,24 @@ export class GenerationStore {
     }
 
     return { ok: true, record, duplicate: false };
+  }
+
+  requestManualRetry(generationId: string):
+    | { ok: true; record: GenerationRecord }
+    | { ok: false; reason: "not_found" | "invalid_state" } {
+    const record = this.records.get(generationId);
+    if (!record) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (record.cancelled || !record.manualRetryAllowed || record.repairInProgress) {
+      return { ok: false, reason: "invalid_state" };
+    }
+
+    record.repairStatus = "analyzing";
+    record.manualRetryAllowed = false;
+    record.updatedAt = new Date().toISOString();
+    return { ok: true, record };
   }
 
   toSnapshot(record: GenerationRecord): GenerationStoreSnapshot {
@@ -394,6 +470,13 @@ export class GenerationStore {
       confirmedAt: record.confirmedAt,
       awaitingPlanConfirmation: record.awaitingPlanConfirmation,
       awaitingSandboxValidation: record.awaitingSandboxValidation,
+      repairRequired: record.repairRequired,
+      repairStatus: record.repairStatus,
+      currentRepairAttempt: record.currentRepairAttempt,
+      maxRepairAttempts: record.maxRepairAttempts,
+      repairInProgress: record.repairInProgress,
+      manualRetryAllowed: record.manualRetryAllowed,
+      repair: buildRepairStatusSnapshot(record, record.maxRepairAttempts),
       errors: record.errors,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

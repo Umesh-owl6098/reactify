@@ -12,7 +12,13 @@ export interface LoadedPrompt {
 }
 
 export type LoadPromptFn = (
-  name: "design-analysis" | "generation-plan" | "react-project-generation" | "generation" | "repair",
+  name:
+    | "design-analysis"
+    | "generation-plan"
+    | "react-project-generation"
+    | "generation"
+    | "repair"
+    | "project-repair",
 ) => LoadedPrompt;
 
 export interface AIStageConfig {
@@ -50,6 +56,11 @@ export interface PipelineContext {
   aiProvider: AIProvider;
   loadPrompt: LoadPromptFn;
   aiConfig: AIStageConfig;
+  repairConfig: {
+    maxAttempts: number;
+    maxPatchFileBytes: number;
+    maxPatchTotalBytes: number;
+  };
   failStage?: PipelineStageName;
 }
 

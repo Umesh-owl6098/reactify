@@ -38,6 +38,7 @@ const baseStatus: GenerationStatusResponse = {
   confirmedAt: null,
   awaitingPlanConfirmation: true,
   awaitingSandboxValidation: false,
+  repair: null,
   featureFlags: {
     enableGenerationPlanEditing: true,
   },

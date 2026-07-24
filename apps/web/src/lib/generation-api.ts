@@ -9,6 +9,9 @@ import {
   GenerationStatusResponseSchema,
   SandboxValidationRequestSchema,
   SandboxValidationResponseSchema,
+  RepairRetryResponseSchema,
+  RepairHistoryListResponseSchema,
+  RepairAttemptDetailResponseSchema,
   type GenerationPlanV1,
   type GenerationStatusResponse,
   type SandboxValidationRequest,
@@ -16,7 +19,7 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
-const TERMINAL_STATUSES = new Set(["Ready", "Failed", "Cancelled", "RepairRequired"]);
+const TERMINAL_STATUSES = new Set(["Ready", "Failed", "Cancelled", "RepairRequired", "RepairFailed"]);
 
 export function isTerminalGenerationStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -140,5 +143,31 @@ export async function fetchGeneratedFileContent(generationId: string, path: stri
 
 export function shouldShowGeneratedProject(status: GenerationStatusResponse): boolean {
   return Boolean(status.outputs.generatedProject) &&
-    ["Generating", "Validating", "Compiling", "Repairing", "RepairRequired", "Ready", "Failed"].includes(status.status);
+    ["Generating", "Validating", "Compiling", "Repairing", "RepairRequired", "RepairFailed", "Ready", "Failed"].includes(status.status);
+}
+
+export async function fetchRepairHistory(generationId: string) {
+  const response = await fetch(`${API_BASE}/api/v1/generations/${generationId}/repairs`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch repair history.");
+  }
+  return RepairHistoryListResponseSchema.parse(await response.json());
+}
+
+export async function fetchRepairAttempt(generationId: string, attemptNumber: number) {
+  const response = await fetch(`${API_BASE}/api/v1/generations/${generationId}/repairs/${attemptNumber}`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch repair attempt.");
+  }
+  return RepairAttemptDetailResponseSchema.parse(await response.json());
+}
+
+export async function retryRepair(generationId: string) {
+  const response = await fetch(`${API_BASE}/api/v1/generations/${generationId}/repairs/retry`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to retry repair.");
+  }
+  return RepairRetryResponseSchema.parse(await response.json()).status;
 }

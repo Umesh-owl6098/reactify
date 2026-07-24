@@ -53,6 +53,11 @@ export interface PipelineRunnerServices {
   aiProvider: AIProvider;
   loadPrompt: LoadPromptFn;
   aiConfig: AIStageConfig;
+  repairConfig: {
+    maxAttempts: number;
+    maxPatchFileBytes: number;
+    maxPatchTotalBytes: number;
+  };
 }
 
 export class PipelineRunner {
@@ -93,7 +98,7 @@ export class PipelineRunner {
   async submitSandboxValidation(
     generationId: string,
     body: unknown,
-  ): Promise<{ ok: true; duplicate: boolean } | { ok: false; reason: string }> {
+  ): Promise<{ ok: true; duplicate: boolean; shouldResume: boolean } | { ok: false; reason: string }> {
     const record = this.store.get(generationId);
     if (!record) {
       return { ok: false, reason: "not_found" };
@@ -106,7 +111,7 @@ export class PipelineRunner {
       }
 
       if (record.validationReportFingerprint === validation.report.reportFingerprint) {
-        return { ok: true, duplicate: true };
+        return { ok: true, duplicate: true, shouldResume: false };
       }
 
       return { ok: false, reason: "duplicate_conflict" };
@@ -141,11 +146,20 @@ export class PipelineRunner {
     }
 
     if (submitResult.duplicate) {
-      return { ok: true, duplicate: true };
+      return { ok: true, duplicate: true, shouldResume: false };
     }
 
-    await this.resumeFromSandbox(generationId);
-    return { ok: true, duplicate: false };
+    const updated = this.store.get(generationId);
+    const shouldResume =
+      updated?.status !== "RepairFailed" &&
+      updated?.status !== "Cancelled" &&
+      updated?.status !== "Failed";
+
+    if (shouldResume) {
+      await this.resumeFromSandbox(generationId);
+    }
+
+    return { ok: true, duplicate: false, shouldResume };
   }
 
   async resume(generationId: string): Promise<void> {
@@ -203,6 +217,7 @@ export class PipelineRunner {
         aiProvider: this.services.aiProvider,
         loadPrompt: this.services.loadPrompt,
         aiConfig: this.services.aiConfig,
+        repairConfig: this.services.repairConfig,
         failStage: record.failStage,
       };
 
@@ -243,6 +258,14 @@ export class PipelineRunner {
           return;
         }
 
+        if (stageName === "automatic_repair") {
+          if (current.repairInProgress) {
+            return;
+          }
+          current.repairInProgress = true;
+          current.repairStatus = "analyzing";
+        }
+
         this.store.markStageRunning(current, stageName);
 
         const result = await this.executeStageSafely(
@@ -254,6 +277,7 @@ export class PipelineRunner {
         );
 
         if (result.status === "paused") {
+          current.repairInProgress = false;
           if (stageName === "generation_plan_review") {
             this.store.markStageAwaitingConfirmation(current, stageName);
             this.store.applyStateOutputs(current, state);
@@ -272,6 +296,17 @@ export class PipelineRunner {
           }
 
           if (stageName === "runtime_validation") {
+            return;
+          }
+
+          if (stageName === "automatic_repair") {
+            if (result.output) {
+              state = mergeState(state, result.output);
+            }
+            current.validationReportFingerprint = null;
+            this.store.markStageAwaitingClient(current, "sandbox_compilation");
+            this.store.applyStateOutputs(current, state);
+            this.store.pauseForSandboxValidation(current, state);
             return;
           }
         }
@@ -294,6 +329,28 @@ export class PipelineRunner {
         });
 
         if (result.status === "failed") {
+          current.repairInProgress = false;
+          if (stageName === "automatic_repair") {
+            const repairStatus = (result.output as Partial<PipelineState> | undefined)?.repairStatus;
+            current.status =
+              repairStatus === "exhausted" || result.errorCode === ErrorCode.REPAIR_ATTEMPTS_EXHAUSTED
+                ? "RepairFailed"
+                : "RepairFailed";
+            current.repairStatus = repairStatus ?? "failed";
+            current.activeStage = null;
+            current.pipelineState = null;
+            if (result.output) {
+              state = mergeState(state, result.output);
+              this.store.applyStateOutputs(current, state);
+            }
+            current.errors.push({
+              stage: stageName,
+              code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
+              message: result.errorMessage ?? "Automatic repair failed",
+            });
+            return;
+          }
+
           current.status = "Failed";
           current.activeStage = null;
           current.errors.push({
@@ -304,13 +361,10 @@ export class PipelineRunner {
           return;
         }
 
-        if (stageName === "automatic_repair" && state.repairRequired) {
-          current.status = "RepairRequired";
-          current.activeStage = null;
-          current.pipelineState = null;
-          current.sandboxResumeInProgress = false;
-          current.updatedAt = new Date().toISOString();
-          return;
+        if (stageName === "automatic_repair" && result.status === "completed") {
+          current.repairInProgress = false;
+          state.repairRequired = false;
+          state.repairStatus = "succeeded";
         }
       }
 
@@ -319,9 +373,9 @@ export class PipelineRunner {
         return;
       }
 
-      if (state.repairRequired) {
-        finished.status = "RepairRequired";
-      } else {
+      if (state.repairRequired && finished.status !== "RepairFailed") {
+        finished.status = "Repairing";
+      } else if (finished.status !== "RepairFailed") {
         finished.status = "Ready";
       }
       finished.activeStage = null;

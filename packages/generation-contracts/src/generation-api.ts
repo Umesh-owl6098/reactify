@@ -8,6 +8,7 @@ import { ProjectMetadataSchema } from "./project-metadata.js";
 import { PipelineStageLogEntrySchema, PipelineStageNameSchema } from "./pipeline.js";
 import { SchemaValidationResultSchema, StaticValidationResultSchema } from "./validation-results.js";
 import { SandboxValidationSnapshotSchema } from "./sandbox-validation.js";
+import { RepairStatusSnapshotSchema } from "./repair.js";
 
 export const GenerationUserStatusSchema = z.enum([
   "Queued",
@@ -19,6 +20,7 @@ export const GenerationUserStatusSchema = z.enum([
   "Compiling",
   "Repairing",
   "RepairRequired",
+  "RepairFailed",
   "Ready",
   "Failed",
   "Cancelled",
@@ -85,6 +87,7 @@ export const GenerationStatusResponseSchema = z.object({
   confirmedAt: z.string().datetime().nullable(),
   awaitingPlanConfirmation: z.boolean(),
   awaitingSandboxValidation: z.boolean(),
+  repair: RepairStatusSnapshotSchema.nullable(),
   featureFlags: GenerationFeatureFlagsSchema,
   errors: z.array(GenerationErrorSchema),
   durations: GenerationDurationsSchema,

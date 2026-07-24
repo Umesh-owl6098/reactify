@@ -46,7 +46,7 @@ export const SandboxValidationRequestSchema = z.object({
 });
 
 export const SandboxValidationResponseSchema = z.object({
-  status: z.enum(["Compiling", "Repairing", "Ready", "Failed", "RepairRequired"]),
+  status: z.enum(["Compiling", "Repairing", "Ready", "Failed", "RepairRequired", "RepairFailed"]),
 });
 
 export const SandboxValidationSnapshotSchema = z.object({

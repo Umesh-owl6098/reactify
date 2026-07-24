@@ -16,6 +16,7 @@ const STATUS_LABELS: Record<GenerationUserStatus, string> = {
   Compiling: "Compiling",
   Repairing: "Repairing",
   RepairRequired: "Repair required",
+  RepairFailed: "Repair failed",
   Ready: "Ready",
   Failed: "Failed",
   Cancelled: "Cancelled",
@@ -123,9 +124,21 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
             </StatusBanner>
           ) : null}
 
+          {activeStatus === "Repairing" && isPolling ? (
+            <StatusBanner tone="info" title="Repairing generated project">
+              Automatic repair is generating and validating a structured patch for the reported diagnostics.
+            </StatusBanner>
+          ) : null}
+
           {activeStatus === "RepairRequired" ? (
             <StatusBanner tone="error" title="Repair required">
-              Sandbox compilation or runtime validation failed. Automatic AI repair is not implemented yet.
+              Sandbox compilation or runtime validation failed. Automatic repair will attempt targeted fixes.
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "RepairFailed" ? (
+            <StatusBanner tone="error" title="Repair failed">
+              Automatic repair could not restore a valid preview within the configured attempt limit.
             </StatusBanner>
           ) : null}
 

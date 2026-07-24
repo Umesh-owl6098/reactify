@@ -30,6 +30,15 @@ export function SandpackValidationController({
   const setReportError = usePreviewStore((state) => state.setReportError);
   const submissionRef = useRef(false);
   const compilationStartedAtRef = useRef<number | null>(null);
+  const activeProjectHashRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (status.projectHash && activeProjectHashRef.current !== status.projectHash) {
+      activeProjectHashRef.current = status.projectHash;
+      submissionRef.current = false;
+      compilationStartedAtRef.current = null;
+    }
+  }, [status.projectHash]);
 
   useEffect(() => {
     if (!isAwaitingSandboxValidation(status) || !status.projectHash || !projectFiles || reportSubmitted) {

@@ -1,6 +1,8 @@
 import type {
   PlanMetadata,
   ProjectMetadata,
+  RepairAttemptRecord,
+  RepairStatus,
   SandboxValidationSnapshot,
   SchemaValidationResult,
   StaticValidationResult,
@@ -8,6 +10,11 @@ import type {
 import type { AIImageInput } from "@reactify/shared";
 import type { AllowedImageMimeType } from "@reactify/shared";
 import type { GenerationUserStatus } from "@reactify/generation-contracts";
+
+export interface InternalRepairAttemptRecord extends RepairAttemptRecord {
+  patchFingerprint?: string;
+  diagnosticsFingerprint?: string;
+}
 
 export interface PipelineState {
   imageId: string;
@@ -29,6 +36,12 @@ export interface PipelineState {
   sandboxValidation?: SandboxValidationSnapshot;
   repairRequired?: boolean;
   repairImplemented?: boolean;
+  repairStatus?: RepairStatus;
+  currentRepairAttempt?: number;
+  repairAttempts?: InternalRepairAttemptRecord[];
+  repairInProgress?: boolean;
+  manualRetryAllowed?: boolean;
+  validationReportFingerprint?: string | null;
 }
 
 export interface GenerationErrorRecord {
@@ -57,6 +70,13 @@ export interface GenerationRecord {
   sandboxValidation: SandboxValidationSnapshot | null;
   projectHash: string | null;
   validationReportFingerprint: string | null;
+  repairRequired: boolean;
+  repairStatus: RepairStatus;
+  currentRepairAttempt: number;
+  maxRepairAttempts: number;
+  repairAttempts: InternalRepairAttemptRecord[];
+  repairInProgress: boolean;
+  manualRetryAllowed: boolean;
   editedByUser: boolean;
   confirmedAt: string | null;
   awaitingPlanConfirmation: boolean;
@@ -79,6 +99,7 @@ export interface GenerationStoreSnapshot extends Omit<
   | "resumeInProgress"
   | "sandboxResumeInProgress"
   | "validationReportFingerprint"
+  | "repairAttempts"
   | "outputs"
 > {
   outputs: {
@@ -86,6 +107,7 @@ export interface GenerationStoreSnapshot extends Omit<
     generationPlan: import("@reactify/generation-contracts").GenerationPlanV1 | null;
     generatedProject: import("@reactify/generation-contracts").GeneratedProjectSummary | null;
   };
+  repair: import("@reactify/generation-contracts").RepairStatusSnapshot | null;
   durations: {
     totalMs: number;
     stages: Record<string, number>;

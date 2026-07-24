@@ -87,7 +87,7 @@ describe("sandbox validation endpoint", () => {
     expect(record?.sandboxValidation?.runtime.success).toBe(true);
   });
 
-  it("continues to repair required when compilation fails", async () => {
+  it("continues to repair revalidation when compilation fails", async () => {
     const generationId = await startGeneration();
     await waitForPlanning(app, generationId);
     await confirmPlan(app, generationId);
@@ -107,14 +107,15 @@ describe("sandbox validation endpoint", () => {
     );
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().status).toBe("RepairRequired");
 
     const record = pipeline.store.get(generationId);
-    expect(record?.status).toBe("RepairRequired");
+    expect(record?.awaitingSandboxValidation).toBe(true);
+    expect(record?.repairAttempts.length).toBe(1);
+    expect(record?.repairStatus).toBe("waiting_for_revalidation");
     expect(record?.status).not.toBe("Ready");
   });
 
-  it("continues to repair required when runtime fails", async () => {
+  it("continues repair loop when runtime fails", async () => {
     const generationId = await startGeneration();
     await waitForPlanning(app, generationId);
     await confirmPlan(app, generationId);
@@ -134,7 +135,9 @@ describe("sandbox validation endpoint", () => {
     );
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().status).toBe("RepairRequired");
+    const record = pipeline.store.get(generationId);
+    expect(record?.repairAttempts.length).toBe(1);
+    expect(record?.awaitingSandboxValidation).toBe(true);
   });
 
   it("rejects invalid schema payloads", async () => {

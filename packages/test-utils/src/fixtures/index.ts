@@ -2,6 +2,8 @@ import type { DesignAnalysisV1 } from "@reactify/generation-contracts";
 import type { GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { GenerationPlanV1 } from "@reactify/generation-contracts";
 
+export { projectPatchFixture, createProjectPatchFixtureJson } from "./projectPatch.js";
+
 export const designAnalysisFixture: DesignAnalysisV1 = {
   schemaVersion: "1",
   responseVersion: "mock-v1",

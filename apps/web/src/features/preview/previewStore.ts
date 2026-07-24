@@ -49,6 +49,7 @@ interface PreviewStoreState {
   markReportSubmitted: () => void;
   setReportError: (message: string | null) => void;
   reloadPreview: () => void;
+  resetReportState: () => void;
   reset: () => void;
 }
 
@@ -108,6 +109,16 @@ export const usePreviewStore = create<PreviewStoreState>((set) => ({
       runtimeErrors: [],
       runtimeWarnings: [],
     })),
+  resetReportState: () =>
+    set({
+      reportSubmitted: false,
+      reportError: null,
+      phase: "preparing",
+      compilationErrors: [],
+      compilationWarnings: [],
+      runtimeErrors: [],
+      runtimeWarnings: [],
+    }),
   reset: () => set(initialState),
 }));
 

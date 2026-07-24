@@ -3,6 +3,11 @@ import type {
   SchemaValidationResult,
   StaticValidationResult,
 } from "@reactify/generation-contracts";
+import { RepairStatusPanel } from "../repair/RepairStatus";
+import { RepairHistory } from "../repair/RepairHistory";
+import { RepairChangedFiles } from "../repair/RepairChangedFiles";
+import { RepairDiagnostics } from "../repair/RepairDiagnostics";
+import { useRepairStatus } from "../repair/useRepairStatus";
 import { PreviewWorkspace } from "../preview/PreviewWorkspace";
 import { usePreviewStore } from "../preview/previewStore";
 
@@ -14,6 +19,7 @@ interface GeneratedProjectViewProps {
 export function GeneratedProjectView({ status, onValidationReportSubmitted }: GeneratedProjectViewProps) {
   const project = status.outputs.generatedProject;
   const phase = usePreviewStore((state) => state.phase);
+  const { repair, attemptDetail, manualRetry } = useRepairStatus(status, onValidationReportSubmitted);
 
   if (!project) {
     return null;
@@ -46,6 +52,11 @@ export function GeneratedProjectView({ status, onValidationReportSubmitted }: Ge
         </section>
       ) : null}
 
+      <RepairStatusPanel repair={repair} onManualRetry={() => void manualRetry()} />
+      <RepairHistory repair={repair} />
+      <RepairChangedFiles repair={repair} attemptDetail={attemptDetail} />
+      <RepairDiagnostics repair={repair} />
+
       <PreviewWorkspace status={status} onValidationReportSubmitted={onValidationReportSubmitted} />
 
       <ValidationResults
@@ -60,13 +71,23 @@ export function GeneratedProjectView({ status, onValidationReportSubmitted }: Ge
         </div>
       ) : null}
 
+      {status.status === "RepairFailed" ? (
+        <div
+          className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100"
+          role="alert"
+          tabIndex={-1}
+        >
+          Automatic repair failed. Review the repair history and diagnostics below.
+        </div>
+      ) : null}
+
       {status.status === "RepairRequired" || phase === "repair_required" ? (
         <div
           className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
           role="alert"
           tabIndex={-1}
         >
-          Repair required. Automatic AI repair is not implemented yet, but diagnostics were preserved.
+          Validation failed. Automatic repair will analyze diagnostics and attempt a targeted patch.
         </div>
       ) : null}
     </section>

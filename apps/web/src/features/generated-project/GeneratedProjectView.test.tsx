@@ -80,6 +80,7 @@ const status: GenerationStatusResponse = {
   confirmedAt: "2026-01-01T00:00:00.000Z",
   awaitingPlanConfirmation: false,
   awaitingSandboxValidation: false,
+  repair: null,
   featureFlags: { enableGenerationPlanEditing: true },
   errors: [],
   durations: { totalMs: 0, stages: {} },
