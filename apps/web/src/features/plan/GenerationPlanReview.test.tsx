@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { GenerationStatusResponse } from "@reactify/generation-contracts";
 import { generationPlanFixture } from "@reactify/test-utils";
 import { cancelGeneration, confirmGenerationPlan } from "../../lib/generation-api";
+import { visualComparisonPollingDefaults } from "../../test/visualComparisonPollingDefaults";
 import { GenerationPlanReview } from "./GenerationPlanReview";
 
 const baseStatus: GenerationStatusResponse = {
@@ -39,6 +40,20 @@ const baseStatus: GenerationStatusResponse = {
   awaitingPlanConfirmation: true,
   awaitingSandboxValidation: false,
   repair: null,
+  exportAllowed: false,
+  exportBlockedReason: "project_not_validated",
+  latestExportSummary: null,
+  editAllowed: false,
+  editBlockedReason: null,
+  activeEditId: null,
+  activeEditStatus: null,
+  clarificationRequired: false,
+  clarificationQuestion: null,
+  latestEditSummary: null,
+  activeVersionId: null,
+  activeVersionNumber: null,
+  sandboxRevalidationRequired: false,
+  ...visualComparisonPollingDefaults,
   featureFlags: {
     enableGenerationPlanEditing: true,
   },

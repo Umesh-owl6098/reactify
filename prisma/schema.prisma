@@ -1,0 +1,355 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UploadedImage {
+  id               String   @id @default(uuid()) @db.Uuid
+  storageKey       String   @unique
+  originalFilename String?
+  mimeType         String
+  sizeBytes        Int
+  width            Int?
+  height           Int?
+  contentHash      String?
+  createdAt        DateTime @default(now())
+
+  generations Generation[]
+
+  @@index([createdAt])
+}
+
+model Generation {
+  id                          String    @id @default(uuid()) @db.Uuid
+  projectId                   String    @db.Uuid
+  status                      String
+  currentStage                String?
+  sourceImageId               String    @db.Uuid
+  activeVersionId             String?
+  latestProjectHash           String?
+  stateVersion                Int       @default(1)
+  cancelled                   Boolean   @default(false)
+  failStage                   String?
+  failureCode                 String?
+  failureMessage              String?
+  repairRequired              Boolean   @default(false)
+  repairStatus                String    @default("not_required")
+  currentRepairAttempt          Int       @default(0)
+  maxRepairAttempts           Int       @default(3)
+  repairInProgress            Boolean   @default(false)
+  manualRetryAllowed          Boolean   @default(false)
+  editedByUser                Boolean   @default(false)
+  confirmedAt                 DateTime?
+  awaitingPlanConfirmation      Boolean   @default(false)
+  awaitingSandboxValidation     Boolean   @default(false)
+  validationReportFingerprint String?
+  exportInProgress            Boolean   @default(false)
+  editInProgress              Boolean   @default(false)
+  activeEditId                String?   @db.Uuid
+  rollbackInProgress          Boolean   @default(false)
+  visualComparisonInProgress  Boolean   @default(false)
+  activeComparisonId          String?   @db.Uuid
+  visualCorrectionInProgress  Boolean   @default(false)
+  visualCorrectionAttempt     Int       @default(0)
+  visualCorrectionMaxAttempts Int       @default(3)
+  previewCaptureRequired      Boolean   @default(false)
+  resumeInProgress            Boolean   @default(false)
+  sandboxResumeInProgress     Boolean   @default(false)
+  pipelineState               Json?
+  pendingVisualRecomparison   Json?
+  schemaValidation            Json?
+  staticValidation            Json?
+  sandboxValidation           Json?
+  analysisMetadata            Json?
+  planMetadata                Json?
+  projectMetadata             Json?
+  outputsDesignAnalysis       Json?
+  outputsGenerationPlan       Json?
+  errors                      Json      @default("[]")
+  completedAt                 DateTime?
+  deletedAt                   DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  sourceImage         UploadedImage          @relation(fields: [sourceImageId], references: [id])
+  stages              PipelineStageRecord[]
+  designAnalyses      DesignAnalysisRecord[]
+  plans               GenerationPlanRecord[]
+  versions            ProjectVersion[]
+  repairAttempts      RepairAttempt[]
+  edits               ProjectEdit[]
+  visualComparisons   VisualComparison[]
+  exports             ProjectExport[]
+  idempotencyRecords  IdempotencyRecord[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([latestProjectHash])
+}
+
+model PipelineStageRecord {
+  id           String    @id @default(uuid()) @db.Uuid
+  generationId String    @db.Uuid
+  stageName    String
+  status       String
+  attemptNumber Int      @default(1)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
+  errorCode    String?
+  errorMessage String?
+  metadata     Json?
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([generationId, stageName])
+}
+
+model DesignAnalysisRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  generationId   String   @db.Uuid
+  schemaVersion  String
+  responseVersion String
+  promptVersion  String
+  provider       String
+  model          String
+  output         Json
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  latencyMs      Int      @default(0)
+  temperature    Float?
+  createdAt      DateTime @default(now())
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([generationId])
+}
+
+model GenerationPlanRecord {
+  id              String    @id @default(uuid()) @db.Uuid
+  generationId    String    @db.Uuid
+  revisionNumber  Int
+  schemaVersion   String
+  responseVersion String
+  plan            Json
+  status          String
+  confirmedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, revisionNumber])
+  @@index([generationId])
+}
+
+model ProjectVersion {
+  id                      String   @id @default(uuid()) @db.Uuid
+  generationId            String   @db.Uuid
+  versionId               String
+  versionNumber           Int
+  source                  String
+  label                   String
+  description             String?
+  projectHash             String
+  parentVersionId         String?
+  sourceVersionId         String?
+  projectSnapshot         Json
+  changedFiles            Json     @default("[]")
+  schemaValidationStatus  String?
+  staticValidationStatus  String?
+  compilationStatus       String?
+  runtimeValidationStatus String?
+  repairAttemptNumber     Int?
+  editId                  String?  @db.Uuid
+  comparisonId            String?  @db.Uuid
+  instruction             String?
+  createdBy               String?
+  createdAt               DateTime @default(now())
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, versionNumber])
+  @@unique([generationId, versionId])
+  @@index([generationId])
+  @@index([projectHash])
+}
+
+model RepairAttempt {
+  id                          String    @id @default(uuid()) @db.Uuid
+  generationId                String    @db.Uuid
+  attemptNumber               Int
+  status                      String
+  provider                    String
+  model                       String
+  promptVersion               String
+  inputTokens                 Int       @default(0)
+  outputTokens                Int       @default(0)
+  latencyMs                   Int       @default(0)
+  diagnosticsBefore           Json
+  repairabilityClassification Json
+  patchSummary                String?
+  changedFiles                Json      @default("[]")
+  deletedFiles                Json      @default("[]")
+  dependencyChanges           Json      @default("[]")
+  projectHashBefore           String
+  projectHashAfter            String?
+  staticValidationAfter       Json?
+  sandboxValidationAfter      Json?
+  versionIdBefore             String?
+  versionIdAfter              String?
+  patchFingerprint            String?
+  diagnosticsFingerprint      String?
+  failureReason               String?
+  repeatedPatchDetected       Boolean   @default(false)
+  repeatedDiagnosticsDetected Boolean   @default(false)
+  unresolvedRisks             Json      @default("[]")
+  startedAt                   DateTime
+  completedAt                 DateTime?
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, attemptNumber])
+  @@index([generationId])
+}
+
+model ProjectEdit {
+  id                    String    @id @default(uuid()) @db.Uuid
+  generationId          String    @db.Uuid
+  editId                String    @unique @default(uuid()) @db.Uuid
+  sourceVersionId       String
+  createdVersionId      String?
+  instruction           String
+  resolvedInstruction   String
+  intent                Json?
+  status                String
+  projectHashBefore     String?
+  projectHashAfter      String?
+  changedFiles          Json      @default("[]")
+  selectedFiles         Json      @default("[]")
+  selectedComponentIds  Json      @default("[]")
+  pendingEdit           Json?
+  pendingIntent         Json?
+  clarificationAnswers  Json      @default("[]")
+  clarificationRound    Int       @default(0)
+  clarificationQuestion String?
+  confirmationRequired  Boolean   @default(false)
+  versionNumber         Int?
+  idempotencyFingerprint String?
+  failureReason         String?
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+
+  generation     Generation          @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  clarifications EditClarification[]
+
+  @@index([generationId])
+}
+
+model EditClarification {
+  id          String   @id @default(uuid()) @db.Uuid
+  editId      String   @db.Uuid
+  roundNumber Int
+  question    String
+  answer      String?
+  createdAt   DateTime @default(now())
+
+  edit ProjectEdit @relation(fields: [editId], references: [editId], onDelete: Cascade)
+
+  @@unique([editId, roundNumber])
+}
+
+model VisualComparison {
+  id                       String    @id @default(uuid()) @db.Uuid
+  generationId             String    @db.Uuid
+  comparisonId             String    @unique @default(uuid()) @db.Uuid
+  versionId                String
+  projectHash              String
+  viewport                 Json
+  status                   String
+  similarityScore          Float?
+  pixelDifferencePercentage Float?
+  structuralDifferenceScore Float?
+  regions                  Json      @default("[]")
+  summary                  String?
+  correctionRecommended    Boolean   @default(false)
+  artifactReferences       Json      @default("{}")
+  screenshotSubmitted      Boolean   @default(false)
+  idempotencyFingerprint   String?
+  createdAt                DateTime  @default(now())
+  completedAt              DateTime?
+
+  generation          Generation               @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  correctionAttempts  VisualCorrectionAttempt[]
+
+  @@index([generationId])
+}
+
+model VisualCorrectionAttempt {
+  id                   String    @id @default(uuid()) @db.Uuid
+  comparisonId         String    @db.Uuid
+  generationId         String    @db.Uuid
+  attemptNumber        Int
+  sourceVersionId      String
+  createdVersionId     String?
+  status               String
+  previousScore        Float?
+  newScore             Float?
+  changedFiles         Json      @default("[]")
+  expectedImprovements Json      @default("[]")
+  failureCode          String?
+  failureMessage       String?
+  createdAt            DateTime  @default(now())
+  completedAt          DateTime?
+
+  comparison VisualComparison @relation(fields: [comparisonId], references: [comparisonId], onDelete: Cascade)
+
+  @@unique([comparisonId, attemptNumber])
+  @@index([generationId])
+}
+
+model ProjectExport {
+  id                     String    @id @default(uuid()) @db.Uuid
+  generationId           String    @db.Uuid
+  exportId               String    @unique @default(uuid()) @db.Uuid
+  versionId              String
+  status                 String
+  filename               String
+  projectName            String
+  projectHash            String
+  fileCount              Int       @default(0)
+  totalSizeBytes         Int       @default(0)
+  options                Json      @default("{}")
+  idempotencyFingerprint String?
+  artifactReference      String?
+  failureReason          String?
+  versionNumber          Int       @default(1)
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+
+  generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([generationId])
+}
+
+model IdempotencyRecord {
+  id                 String   @id @default(uuid()) @db.Uuid
+  scope              String
+  generationId       String?  @db.Uuid
+  idempotencyKey     String
+  requestHash        String
+  responseReference  String?
+  status             String
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  generation Generation? @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, idempotencyKey])
+  @@index([expiresAt])
+}

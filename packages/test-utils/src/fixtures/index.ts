@@ -3,6 +3,16 @@ import type { GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { GenerationPlanV1 } from "@reactify/generation-contracts";
 
 export { projectPatchFixture, createProjectPatchFixtureJson } from "./projectPatch.js";
+export {
+  editIntentFixture,
+  projectEditFixture,
+  createEditIntentFixtureJson,
+  createProjectEditFixtureJson,
+} from "./edit.js";
+export {
+  visualCorrectionFixture,
+  createVisualCorrectionFixtureJson,
+} from "./visual-comparison.js";
 
 export const designAnalysisFixture: DesignAnalysisV1 = {
   schemaVersion: "1",

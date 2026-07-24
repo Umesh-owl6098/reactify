@@ -8,6 +8,8 @@ import {
 } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
+import { persistUploadedImage } from "../lib/imagePersistence.js";
+import type { PersistenceService } from "../persistence/PersistenceService.js";
 import { validateImageBuffer } from "../lib/imageValidator.js";
 
 function sendError(
@@ -32,6 +34,7 @@ export async function registerImageRoutes(
   app: FastifyInstance,
   env: Env,
   storage: ImageStorage,
+  persistence?: PersistenceService,
 ): Promise<void> {
   app.post("/api/v1/images", async (request, reply) => {
     const file = await request.file();
@@ -71,7 +74,10 @@ export async function registerImageRoutes(
       return sendError(reply, request, statusCode, validation.errorCode, validation.message);
     }
 
-    const stored = await storage.save(buffer, validation.mimeType);
+    const stored = await storage.save(buffer, validation.mimeType, file.filename);
+    if (persistence) {
+      await persistUploadedImage(stored, persistence.images, file.filename);
+    }
     const response: ImageUploadResponse = ImageUploadResponseSchema.parse({
       imageId: stored.imageId,
       mimeType: stored.mimeType,

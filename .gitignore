@@ -23,6 +23,8 @@ coverage/
 # Runtime uploads
 storage/images/*
 !storage/images/.gitkeep
+storage/comparisons/*
+!storage/comparisons/.gitkeep
 
 # OS and editor files
 .DS_Store

@@ -30,6 +30,31 @@ export const testEnv: Env = {
   MAX_REPAIR_ATTEMPTS: 3,
   MAX_PATCH_FILE_BYTES: 512 * 1024,
   MAX_PATCH_TOTAL_BYTES: 2 * 1024 * 1024,
+  MAX_EXPORT_FILES: 200,
+  MAX_EXPORT_FILE_BYTES: 512 * 1024,
+  MAX_EXPORT_TOTAL_BYTES: 5 * 1024 * 1024,
+  MAX_EXPORT_ZIP_BYTES: 8 * 1024 * 1024,
+  MAX_EDIT_INSTRUCTION_LENGTH: 2000,
+  MIN_EDIT_INSTRUCTION_LENGTH: 3,
+  MAX_EDIT_CLARIFICATION_ROUNDS: 3,
+  HIGH_RISK_FILE_THRESHOLD: 5,
+  MAX_EDIT_SCOPE_RATIO: 0.5,
+  VISUAL_COMPARISON_STORAGE_DIR: "storage/comparisons",
+  MAX_PREVIEW_SCREENSHOT_BYTES: 5 * 1024 * 1024,
+  MAX_PREVIEW_SCREENSHOT_DIMENSION: 4096,
+  MIN_PREVIEW_SCREENSHOT_DIMENSION: 120,
+  VISUAL_COMPARISON_NOISE_THRESHOLD: 24,
+  VISUAL_COMPARISON_REGION_MERGE_DISTANCE: 24,
+  VISUAL_COMPARISON_MAX_REGIONS: 12,
+  VISUAL_COMPARISON_MIN_REGION_SIZE: 16,
+  VISUAL_SIMILARITY_ACCEPTABLE_THRESHOLD: 92,
+  VISUAL_CORRECTION_RECOMMEND_THRESHOLD: 85,
+  VISUAL_CORRECTION_MIN_IMPROVEMENT: 2,
+  MAX_VISUAL_CORRECTION_ATTEMPTS: 3,
+  DATABASE_URL:
+    process.env.TEST_DATABASE_URL ?? "postgresql://reactify:reactify_dev@localhost:5434/reactify_test",
+  DATABASE_CONNECTION_LIMIT: 5,
+  DATABASE_QUERY_TIMEOUT_MS: 30_000,
 };
 
 export async function createTestImage(storageDir: string): Promise<string> {
@@ -38,15 +63,16 @@ export async function createTestImage(storageDir: string): Promise<string> {
   return stored.imageId;
 }
 
-export async function createTestServer(options: { aiProvider?: AIProvider; storageDir?: string } = {}) {
+export async function createTestServer(options: { aiProvider?: AIProvider; storageDir?: string; useDatabase?: boolean } = {}) {
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
   const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
     env: testEnv,
     aiProvider: options.aiProvider,
   });
-  const app = await buildServer(testEnv, {
+  const { app } = await buildServer(testEnv, {
     storageDir: resolvedStorageDir,
     pipeline,
+    enablePersistence: options.useDatabase ?? false,
   });
 
   return {

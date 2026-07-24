@@ -18,7 +18,10 @@ export type LoadPromptFn = (
     | "react-project-generation"
     | "generation"
     | "repair"
-    | "project-repair",
+    | "project-repair"
+    | "edit-intent-analysis"
+    | "project-edit"
+    | "visual-correction",
 ) => LoadedPrompt;
 
 export interface AIStageConfig {

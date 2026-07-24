@@ -9,6 +9,12 @@ import { PipelineStageLogEntrySchema, PipelineStageNameSchema } from "./pipeline
 import { SchemaValidationResultSchema, StaticValidationResultSchema } from "./validation-results.js";
 import { SandboxValidationSnapshotSchema } from "./sandbox-validation.js";
 import { RepairStatusSnapshotSchema } from "./repair.js";
+import { ExportBlockedReasonSchema, ExportSummarySchema } from "./export.js";
+import { EditBlockedReasonSchema, EditOperationSummarySchema } from "./edit.js";
+import {
+  VisualComparisonBlockedReasonSchema,
+  VisualComparisonResultSchema,
+} from "./visual-comparison.js";
 
 export const GenerationUserStatusSchema = z.enum([
   "Queued",
@@ -68,6 +74,34 @@ export const CancelGenerationResponseSchema = z.object({
   status: z.literal("Cancelled"),
 });
 
+export const GenerationSummarySchema = z.object({
+  generationId: z.string().uuid(),
+  status: GenerationUserStatusSchema,
+  sourceImageFilename: z.string().nullable(),
+  currentStage: PipelineStageNameSchema.nullable(),
+  activeVersionNumber: z.number().int().positive().nullable(),
+  latestProjectHash: z.string().nullable(),
+  latestSimilarityScore: z.number().min(0).max(100).nullable(),
+  repairCount: z.number().int().nonnegative(),
+  editCount: z.number().int().nonnegative(),
+  versionCount: z.number().int().nonnegative(),
+  exportCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const GenerationListResponseSchema = z.object({
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  items: z.array(GenerationSummarySchema),
+});
+
+export const DeleteGenerationResponseSchema = z.object({
+  generationId: z.string().uuid(),
+  deletedAt: z.string().datetime(),
+});
+
 export const GenerationStatusResponseSchema = z.object({
   id: z.string().uuid(),
   imageId: z.string().uuid(),
@@ -88,6 +122,30 @@ export const GenerationStatusResponseSchema = z.object({
   awaitingPlanConfirmation: z.boolean(),
   awaitingSandboxValidation: z.boolean(),
   repair: RepairStatusSnapshotSchema.nullable(),
+  exportAllowed: z.boolean(),
+  exportBlockedReason: ExportBlockedReasonSchema.nullable(),
+  latestExportSummary: ExportSummarySchema.nullable(),
+  editAllowed: z.boolean(),
+  editBlockedReason: EditBlockedReasonSchema.nullable(),
+  activeEditId: z.string().uuid().nullable(),
+  activeEditStatus: EditOperationSummarySchema.shape.status.nullable(),
+  clarificationRequired: z.boolean(),
+  clarificationQuestion: z.string().nullable(),
+  latestEditSummary: EditOperationSummarySchema.nullable(),
+  activeVersionId: z.string().nullable(),
+  activeVersionNumber: z.number().int().positive().nullable(),
+  sandboxRevalidationRequired: z.boolean(),
+  visualComparisonAllowed: z.boolean(),
+  visualComparisonBlockedReason: VisualComparisonBlockedReasonSchema.nullable(),
+  activeComparisonId: z.string().uuid().nullable(),
+  activeComparisonStatus: VisualComparisonResultSchema.shape.status.nullable(),
+  latestSimilarityScore: z.number().min(0).max(100).nullable(),
+  latestDifferencePercentage: z.number().min(0).max(100).nullable(),
+  visualCorrectionAvailable: z.boolean(),
+  visualCorrectionStatus: VisualComparisonResultSchema.shape.status.nullable(),
+  visualCorrectionAttempt: z.number().int().nonnegative(),
+  visualCorrectionMaxAttempts: z.number().int().positive(),
+  previewCaptureRequired: z.boolean(),
   featureFlags: GenerationFeatureFlagsSchema,
   errors: z.array(GenerationErrorSchema),
   durations: GenerationDurationsSchema,
@@ -99,4 +157,7 @@ export type CreateGenerationResponse = z.infer<typeof CreateGenerationResponseSc
 export type ConfirmPlanRequest = z.infer<typeof ConfirmPlanRequestSchema>;
 export type ConfirmPlanResponse = z.infer<typeof ConfirmPlanResponseSchema>;
 export type CancelGenerationResponse = z.infer<typeof CancelGenerationResponseSchema>;
+export type GenerationSummary = z.infer<typeof GenerationSummarySchema>;
+export type GenerationListResponse = z.infer<typeof GenerationListResponseSchema>;
+export type DeleteGenerationResponse = z.infer<typeof DeleteGenerationResponseSchema>;
 export type GenerationStatusResponse = z.infer<typeof GenerationStatusResponseSchema>;

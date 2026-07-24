@@ -23,7 +23,7 @@ export function SandpackPreviewPanel({
       : { width: viewportWidth, height: viewportHeight, maxWidth: "100%" };
 
   return (
-    <SandpackLayout style={{ border: "none", minHeight: 420 }}>
+    <SandpackLayout style={{ border: "none", minHeight: 420 }} data-sandpack-preview-root>
       <SandpackPreview
         showNavigator={false}
         showRefreshButton={false}

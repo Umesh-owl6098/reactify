@@ -27,7 +27,11 @@ export function createPipelineServices(
   options: CreatePipelineServicesOptions,
 ) {
   const featureFlags = resolveFeatureFlags(options.env);
-  const store = new GenerationStore(featureFlags, options.env.MAX_REPAIR_ATTEMPTS);
+  const store = new GenerationStore(
+    featureFlags,
+    options.env.MAX_REPAIR_ATTEMPTS,
+    options.env.MAX_VISUAL_CORRECTION_ATTEMPTS,
+  );
   const registry = createDefaultRegistry(createStageExecutors(imageStorage));
   const aiProvider = options.aiProvider ?? createAIProvider(options.env);
   const loadPrompt = options.loadPrompt ?? defaultLoadPrompt;

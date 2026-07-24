@@ -11,6 +11,20 @@ import type { AIImageInput } from "@reactify/shared";
 import type { AllowedImageMimeType } from "@reactify/shared";
 import type { GenerationUserStatus } from "@reactify/generation-contracts";
 
+export interface ProjectVersionRecord {
+  versionId: string;
+  versionNumber: number;
+  source: import("@reactify/generation-contracts").ProjectVersionSource;
+  label: string;
+  parentVersionId: string | null;
+  projectHash: string;
+  project: import("@reactify/generation-contracts").GeneratedProjectV1;
+  changedFiles: string[];
+  editId?: string;
+  instruction?: string;
+  createdAt: string;
+}
+
 export interface InternalRepairAttemptRecord extends RepairAttemptRecord {
   patchFingerprint?: string;
   diagnosticsFingerprint?: string;
@@ -87,6 +101,29 @@ export interface GenerationRecord {
   errors: GenerationErrorRecord[];
   cancelled: boolean;
   failStage?: import("@reactify/generation-contracts").PipelineStageName;
+  exports: import("../lib/export/ExportService.js").InternalExportRecord[];
+  exportInProgress: boolean;
+  versions: ProjectVersionRecord[];
+  activeVersionId: string | null;
+  edits: import("../lib/edit/EditService.js").InternalEditRecord[];
+  editInProgress: boolean;
+  activeEditId: string | null;
+  rollbackInProgress: boolean;
+  visualComparisons: import("../lib/visual-comparison/VisualComparisonService.js").InternalVisualComparisonRecord[];
+  visualComparisonInProgress: boolean;
+  activeComparisonId: string | null;
+  visualCorrectionInProgress: boolean;
+  visualCorrectionAttempt: number;
+  visualCorrectionMaxAttempts: number;
+  previewCaptureRequired: boolean;
+  pendingVisualRecomparison: {
+    parentComparisonId: string;
+    baselineSimilarityScore: number;
+    versionId: string;
+    viewport: { width: number; height: number; deviceScaleFactor: number };
+  } | null;
+  stateVersion?: number;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +138,18 @@ export interface GenerationStoreSnapshot extends Omit<
   | "validationReportFingerprint"
   | "repairAttempts"
   | "outputs"
+  | "exports"
+  | "versions"
+  | "edits"
+  | "editInProgress"
+  | "rollbackInProgress"
+  | "visualComparisons"
+  | "visualComparisonInProgress"
+  | "visualCorrectionInProgress"
+  | "visualCorrectionAttempt"
+  | "visualCorrectionMaxAttempts"
+  | "previewCaptureRequired"
+  | "pendingVisualRecomparison"
 > {
   outputs: {
     designAnalysis: import("@reactify/generation-contracts").DesignAnalysisV1 | null;
@@ -108,6 +157,30 @@ export interface GenerationStoreSnapshot extends Omit<
     generatedProject: import("@reactify/generation-contracts").GeneratedProjectSummary | null;
   };
   repair: import("@reactify/generation-contracts").RepairStatusSnapshot | null;
+  exportAllowed: boolean;
+  exportBlockedReason: import("@reactify/generation-contracts").ExportBlockedReason | null;
+  latestExportSummary: import("@reactify/generation-contracts").ExportSummary | null;
+  editAllowed: boolean;
+  editBlockedReason: import("@reactify/generation-contracts").EditBlockedReason | null;
+  activeEditId: string | null;
+  activeEditStatus: import("@reactify/generation-contracts").EditOperationSummary["status"] | null;
+  clarificationRequired: boolean;
+  clarificationQuestion: string | null;
+  latestEditSummary: import("@reactify/generation-contracts").EditOperationSummary | null;
+  activeVersionId: string | null;
+  activeVersionNumber: number | null;
+  sandboxRevalidationRequired: boolean;
+  visualComparisonAllowed: boolean;
+  visualComparisonBlockedReason: import("@reactify/generation-contracts").VisualComparisonBlockedReason | null;
+  activeComparisonId: string | null;
+  activeComparisonStatus: import("@reactify/generation-contracts").VisualComparisonStatus | null;
+  latestSimilarityScore: number | null;
+  latestDifferencePercentage: number | null;
+  visualCorrectionAvailable: boolean;
+  visualCorrectionStatus: import("@reactify/generation-contracts").VisualComparisonStatus | null;
+  visualCorrectionAttempt: number;
+  visualCorrectionMaxAttempts: number;
+  previewCaptureRequired: boolean;
   durations: {
     totalMs: number;
     stages: Record<string, number>;

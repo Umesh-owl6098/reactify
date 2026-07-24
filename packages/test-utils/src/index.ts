@@ -5,6 +5,12 @@ export {
   generationPlanFixture,
   projectPatchFixture,
   createProjectPatchFixtureJson,
+  editIntentFixture,
+  projectEditFixture,
+  createEditIntentFixtureJson,
+  createProjectEditFixtureJson,
+  visualCorrectionFixture,
+  createVisualCorrectionFixtureJson,
 } from "./fixtures/index.js";
 export {
   MockAIProvider,

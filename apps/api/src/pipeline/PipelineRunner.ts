@@ -398,6 +398,9 @@ export class PipelineRunner {
       if (finished?.sandboxResumeInProgress && finished.status === "RepairRequired") {
         finished.sandboxResumeInProgress = false;
       }
+      if (finished) {
+        void this.store.persist(finished);
+      }
     }
   }
 

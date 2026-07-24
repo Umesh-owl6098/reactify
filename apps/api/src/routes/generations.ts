@@ -6,8 +6,10 @@ import {
   ConfirmPlanResponseSchema,
   CreateGenerationRequestSchema,
   CreateGenerationResponseSchema,
+  DeleteGenerationResponseSchema,
   GeneratedFileContentResponseSchema,
   GeneratedFileListResponseSchema,
+  GenerationListResponseSchema,
   GenerationPlanV1Schema,
   GenerationStatusResponseSchema,
   SandboxValidationResponseSchema,
@@ -17,7 +19,10 @@ import { getGeneratedProjectFile, toGeneratedProjectSummary } from "../lib/gener
 import { validateSandboxValidationReport } from "../lib/sandboxValidationReport.js";
 import { validateProjectFilePath } from "../lib/validation/filePathValidator.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
+import { ensureImagePersisted } from "../lib/imagePersistence.js";
+import { sendPersistenceError } from "../lib/persistenceRouteErrors.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
+import type { PersistenceService } from "../persistence/PersistenceService.js";
 import type { PipelineRunner, GenerationStore } from "../pipeline/index.js";
 
 const MAX_FILE_CONTENT_BYTES = 512 * 1024;
@@ -47,7 +52,77 @@ export async function registerGenerationRoutes(
   imageStorage: ImageStorage,
   store: GenerationStore,
   runner: PipelineRunner,
+  persistence?: PersistenceService,
 ): Promise<void> {
+  const MAX_LIST_LIMIT = 100;
+
+  app.get("/api/v1/generations", async (request, reply) => {
+    if (!persistence) {
+      return sendError(reply, request, 503, ErrorCode.DATABASE_UNAVAILABLE, "Generation listing requires database persistence.");
+    }
+
+    const query = request.query as {
+      status?: string;
+      limit?: string;
+      offset?: string;
+      order?: "asc" | "desc";
+    };
+
+    const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), MAX_LIST_LIMIT);
+    const offset = Math.max(Number(query.offset ?? 0), 0);
+
+    try {
+      const result = await persistence.generations.listSummaries({
+        status: query.status,
+        limit,
+        offset,
+        order: query.order,
+      });
+      const response = GenerationListResponseSchema.parse({
+        total: result.total,
+        limit,
+        offset,
+        items: result.items,
+      });
+      return reply.send(response);
+    } catch (error) {
+      return sendPersistenceError(reply, request, error);
+    }
+  });
+
+  app.delete("/api/v1/generations/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    if (!persistence) {
+      return sendError(reply, request, 503, ErrorCode.DATABASE_UNAVAILABLE, "Generation deletion requires database persistence.");
+    }
+
+    const record = store.getIncludingDeleted(id);
+    if (!record) {
+      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+    }
+
+    if (record.deletedAt) {
+      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+    }
+
+    try {
+      const deleted = store.softDelete(id);
+      if (!deleted) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+
+      await persistence.generations.softDelete(id);
+      const response = DeleteGenerationResponseSchema.parse({
+        generationId: id,
+        deletedAt: record.deletedAt,
+      });
+      return reply.send(response);
+    } catch (error) {
+      return sendPersistenceError(reply, request, error);
+    }
+  });
+
   app.post("/api/v1/generations", async (request, reply) => {
     const parsed = CreateGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -57,6 +132,14 @@ export async function registerGenerationRoutes(
     const image = await imageStorage.get(parsed.data.imageId);
     if (!image) {
       return sendError(reply, request, 404, ErrorCode.IMAGE_NOT_FOUND, "Uploaded image was not found.");
+    }
+
+    if (persistence) {
+      try {
+        await ensureImagePersisted(parsed.data.imageId, imageStorage, persistence.images);
+      } catch (error) {
+        return sendPersistenceError(reply, request, error);
+      }
     }
 
     const generationId = runner.start({

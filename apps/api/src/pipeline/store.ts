@@ -9,16 +9,50 @@ import { GenerationPlanV1Schema } from "@reactify/generation-contracts";
 import { deriveUserStatus, type FeatureFlags } from "@reactify/shared";
 import { toGeneratedProjectSummary } from "../lib/generatedProjectResponse.js";
 import { buildRepairStatusSnapshot } from "../lib/repair/repairSnapshot.js";
+import { buildExportSnapshotFields } from "../lib/export/exportEligibility.js";
+import { buildEditSnapshotFields } from "../lib/edit/editEligibility.js";
+import { buildVisualComparisonSnapshotFields } from "../lib/visual-comparison/visualComparisonEligibility.js";
+import { completeEditAfterValidation, getActiveEditClarification, buildLatestEditSummary } from "../lib/edit/EditService.js";
+import { completeVisualCorrectionAfterValidation } from "../lib/visual-comparison/VisualComparisonService.js";
+import { ensureInitialVersion } from "../lib/edit/versionStore.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
 import type { GenerationRecord, GenerationStoreSnapshot, PipelineState } from "./types.js";
 
+export type GenerationPersistHandler = (record: GenerationRecord) => Promise<void>;
+
 export class GenerationStore {
   private readonly records = new Map<string, GenerationRecord>();
+  private persistHandler: GenerationPersistHandler | null = null;
 
   constructor(
     private readonly featureFlags: FeatureFlags,
     private readonly maxRepairAttempts: number,
+    private readonly maxVisualCorrectionAttempts = 3,
   ) {}
+
+  setPersistHandler(handler: GenerationPersistHandler | null): void {
+    this.persistHandler = handler;
+  }
+
+  hydrate(records: GenerationRecord[]): void {
+    for (const record of records) {
+      this.records.set(record.id, record);
+    }
+  }
+
+  async persist(record: GenerationRecord): Promise<void> {
+    if (!this.persistHandler) {
+      return;
+    }
+    await this.persistHandler(record);
+  }
+
+  async persistById(id: string): Promise<void> {
+    const record = this.records.get(id);
+    if (record) {
+      await this.persist(record);
+    }
+  }
 
   create(input: {
     imageId: string;
@@ -63,16 +97,58 @@ export class GenerationStore {
       errors: [],
       cancelled: false,
       failStage: input.failStage,
+      exports: [],
+      exportInProgress: false,
+      versions: [],
+      activeVersionId: null,
+      edits: [],
+      editInProgress: false,
+      activeEditId: null,
+      rollbackInProgress: false,
+      visualComparisons: [],
+      visualComparisonInProgress: false,
+      activeComparisonId: null,
+      visualCorrectionInProgress: false,
+      visualCorrectionAttempt: 0,
+      visualCorrectionMaxAttempts: this.maxVisualCorrectionAttempts,
+      previewCaptureRequired: false,
+      pendingVisualRecomparison: null,
+      stateVersion: 1,
+      deletedAt: null,
       createdAt: now,
       updatedAt: now,
     };
 
     this.records.set(record.id, record);
+    void this.persist(record);
     return record;
   }
 
   get(id: string): GenerationRecord | undefined {
+    const record = this.records.get(id);
+    if (record?.deletedAt) {
+      return undefined;
+    }
+    return record;
+  }
+
+  getIncludingDeleted(id: string): GenerationRecord | undefined {
     return this.records.get(id);
+  }
+
+  listActive(): GenerationRecord[] {
+    return [...this.records.values()].filter((record) => !record.deletedAt);
+  }
+
+  softDelete(id: string): boolean {
+    const record = this.records.get(id);
+    if (!record || record.deletedAt) {
+      return false;
+    }
+    record.deletedAt = new Date().toISOString();
+    record.updatedAt = record.deletedAt;
+    void this.persist(record);
+    return true;
   }
 
   cancel(id: string): boolean {
@@ -87,6 +163,15 @@ export class GenerationStore {
     record.awaitingPlanConfirmation = false;
     record.awaitingSandboxValidation = false;
     record.repairInProgress = false;
+    record.exportInProgress = false;
+    record.editInProgress = false;
+    record.activeEditId = null;
+    record.rollbackInProgress = false;
+    record.visualComparisonInProgress = false;
+    record.visualCorrectionInProgress = false;
+    record.activeComparisonId = null;
+    record.previewCaptureRequired = false;
+    record.pendingVisualRecomparison = null;
     record.pipelineState = null;
     record.updatedAt = new Date().toISOString();
 
@@ -102,6 +187,7 @@ export class GenerationStore {
       }
     }
 
+    void this.persist(record);
     return true;
   }
 
@@ -280,6 +366,7 @@ export class GenerationStore {
       durationMs: 0,
     });
 
+    void this.persist(record);
     return { ok: true, record };
   }
 
@@ -362,11 +449,16 @@ export class GenerationStore {
       state.repairStatus = "succeeded";
       record.repairRequired = false;
       record.repairStatus = "succeeded";
+      ensureInitialVersion(record);
+      completeEditAfterValidation(record, true);
+      completeVisualCorrectionAfterValidation(record, true);
     } else {
       state.repairRequired = true;
       state.repairStatus = record.currentRepairAttempt >= record.maxRepairAttempts ? "exhausted" : "failed";
       record.repairRequired = true;
       record.repairStatus = state.repairStatus;
+      completeEditAfterValidation(record, false);
+      completeVisualCorrectionAfterValidation(record, false);
     }
 
     record.pipelineState = state;
@@ -413,6 +505,7 @@ export class GenerationStore {
       });
     }
 
+    void this.persist(record);
     return { ok: true, record, duplicate: false };
   }
 
@@ -431,6 +524,7 @@ export class GenerationStore {
     record.repairStatus = "analyzing";
     record.manualRetryAllowed = false;
     record.updatedAt = new Date().toISOString();
+    void this.persist(record);
     return { ok: true, record };
   }
 
@@ -444,6 +538,32 @@ export class GenerationStore {
         totalMs += entry.durationMs;
       }
     }
+
+    const exportFields = buildExportSnapshotFields(record);
+    const editFields = buildEditSnapshotFields(record);
+    const visualFields = buildVisualComparisonSnapshotFields(record);
+    const clarification = getActiveEditClarification(record);
+    const latest = record.exports.at(-1);
+    const latestExportSummary = latest
+      ? {
+          exportId: latest.exportId,
+          status: latest.status,
+          filename: latest.filename,
+          projectName: latest.projectName,
+          generationId: latest.generationId,
+          versionId: latest.versionId,
+          versionNumber: latest.versionNumber,
+          projectHash: latest.projectHash,
+          fileCount: latest.fileCount,
+          totalSizeBytes: latest.totalSizeBytes,
+          createdAt: latest.createdAt,
+          completedAt: latest.completedAt,
+          failureReason: latest.failureReason,
+        }
+      : null;
+
+    const latestEditSummary = buildLatestEditSummary(record);
+    const activeVersion = record.versions.find((version) => version.versionId === record.activeVersionId);
 
     return {
       id: record.id,
@@ -476,7 +596,32 @@ export class GenerationStore {
       maxRepairAttempts: record.maxRepairAttempts,
       repairInProgress: record.repairInProgress,
       manualRetryAllowed: record.manualRetryAllowed,
+      exportInProgress: record.exportInProgress,
       repair: buildRepairStatusSnapshot(record, record.maxRepairAttempts),
+      exportAllowed: exportFields.exportAllowed,
+      exportBlockedReason: exportFields.exportBlockedReason,
+      latestExportSummary,
+      editAllowed: editFields.editAllowed,
+      editBlockedReason: editFields.editBlockedReason,
+      activeEditId: record.activeEditId,
+      activeEditStatus: record.edits.find((edit) => edit.editId === record.activeEditId)?.status ?? null,
+      clarificationRequired: clarification.clarificationRequired,
+      clarificationQuestion: clarification.clarificationQuestion,
+      latestEditSummary,
+      activeVersionId: record.activeVersionId,
+      activeVersionNumber: activeVersion?.versionNumber ?? null,
+      sandboxRevalidationRequired: editFields.sandboxRevalidationRequired,
+      visualComparisonAllowed: visualFields.visualComparisonAllowed,
+      visualComparisonBlockedReason: visualFields.visualComparisonBlockedReason,
+      activeComparisonId: visualFields.activeComparisonId,
+      activeComparisonStatus: visualFields.activeComparisonStatus,
+      latestSimilarityScore: visualFields.latestSimilarityScore,
+      latestDifferencePercentage: visualFields.latestDifferencePercentage,
+      visualCorrectionAvailable: visualFields.visualCorrectionAvailable,
+      visualCorrectionStatus: visualFields.visualCorrectionStatus,
+      visualCorrectionAttempt: visualFields.visualCorrectionAttempt,
+      visualCorrectionMaxAttempts: visualFields.visualCorrectionMaxAttempts,
+      previewCaptureRequired: visualFields.previewCaptureRequired,
       errors: record.errors,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

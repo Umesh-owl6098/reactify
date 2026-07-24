@@ -12,6 +12,10 @@ export interface StoredImage {
 interface ImageMetadata {
   mimeType: AllowedImageMimeType;
   sizeBytes: number;
+  width?: number;
+  height?: number;
+  contentHash?: string;
+  originalFilename?: string;
 }
 
 const UUID_PATTERN =
@@ -24,7 +28,11 @@ export class ImageStorage {
     await mkdir(this.storageDir, { recursive: true });
   }
 
-  async save(buffer: Buffer, mimeType: AllowedImageMimeType): Promise<StoredImage> {
+  async save(
+    buffer: Buffer,
+    mimeType: AllowedImageMimeType,
+    originalFilename?: string,
+  ): Promise<StoredImage & { width?: number; height?: number; contentHash?: string }> {
     await this.ensureReady();
 
     const imageId = randomUUID();
@@ -33,6 +41,7 @@ export class ImageStorage {
     const metadata: ImageMetadata = {
       mimeType,
       sizeBytes: buffer.length,
+      originalFilename,
     };
 
     await writeFile(dataPath, buffer);
@@ -43,6 +52,27 @@ export class ImageStorage {
       mimeType,
       sizeBytes: buffer.length,
     };
+  }
+
+  async getMetadata(imageId: string): Promise<ImageMetadata | null> {
+    if (!UUID_PATTERN.test(imageId)) {
+      return null;
+    }
+
+    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
+    try {
+      const metaRaw = await readFile(metaPath, "utf8");
+      return JSON.parse(metaRaw) as ImageMetadata;
+    } catch {
+      return null;
+    }
+  }
+
+  getStorageKey(imageId: string): string | null {
+    if (!UUID_PATTERN.test(imageId)) {
+      return null;
+    }
+    return imageId;
   }
 
   async get(imageId: string): Promise<{ buffer: Buffer; mimeType: AllowedImageMimeType } | null> {

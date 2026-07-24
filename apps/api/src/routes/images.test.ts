@@ -2,8 +2,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Env } from "../env.js";
 import { buildServer } from "../server.js";
+import { testEnv as baseTestEnv } from "../test/helpers.js";
 
 export const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -35,17 +35,11 @@ export function createMultipartPayload(
 describe("image routes", () => {
   let storageDir = "";
   let app: Awaited<ReturnType<typeof buildServer>>;
-  const testEnv: Env = {
-    PORT: 3001,
-    NODE_ENV: "test",
-    IMAGE_MAX_BYTES: 10_485_760,
-    IMAGE_STORAGE_DIR: "storage/images",
-    ALLOWED_ORIGINS: "http://localhost:5173",
-  };
+  const testEnv = baseTestEnv;
 
   beforeEach(async () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-images-"));
-    app = await buildServer(testEnv, { storageDir });
+    app = (await buildServer(testEnv, { storageDir })).app;
   });
 
   afterEach(async () => {
@@ -130,7 +124,7 @@ describe("image routes", () => {
       IMAGE_MAX_BYTES: 32,
     };
     await app.close();
-    app = await buildServer(smallLimitEnv, { storageDir });
+    app = (await buildServer(smallLimitEnv, { storageDir })).app;
 
     const boundary = "test-boundary-oversized";
     const payload = createMultipartPayload(

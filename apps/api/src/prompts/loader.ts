@@ -13,7 +13,10 @@ export function loadPrompt(
     | "react-project-generation"
     | "generation"
     | "repair"
-    | "project-repair",
+    | "project-repair"
+    | "edit-intent-analysis"
+    | "project-edit"
+    | "visual-correction",
 ): LoadedPrompt {
   const raw = readFileSync(join(PROMPTS_DIR, `${name}.md`), "utf8");
   const { data, content } = matter(raw);

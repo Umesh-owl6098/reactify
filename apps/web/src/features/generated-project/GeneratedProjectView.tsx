@@ -9,14 +9,22 @@ import { RepairChangedFiles } from "../repair/RepairChangedFiles";
 import { RepairDiagnostics } from "../repair/RepairDiagnostics";
 import { useRepairStatus } from "../repair/useRepairStatus";
 import { PreviewWorkspace } from "../preview/PreviewWorkspace";
+import { ExportProjectPanel } from "../export/ExportProjectButton";
+import { ProjectEditPanel } from "../project-edit/ProjectEditPanel";
+import { VisualComparisonPanel } from "../visual-comparison/VisualComparisonPanel";
 import { usePreviewStore } from "../preview/previewStore";
 
 interface GeneratedProjectViewProps {
   status: GenerationStatusResponse;
   onValidationReportSubmitted: () => void;
+  onRefreshStatus?: () => void;
 }
 
-export function GeneratedProjectView({ status, onValidationReportSubmitted }: GeneratedProjectViewProps) {
+export function GeneratedProjectView({
+  status,
+  onValidationReportSubmitted,
+  onRefreshStatus = onValidationReportSubmitted,
+}: GeneratedProjectViewProps) {
   const project = status.outputs.generatedProject;
   const phase = usePreviewStore((state) => state.phase);
   const { repair, attemptDetail, manualRetry } = useRepairStatus(status, onValidationReportSubmitted);
@@ -70,6 +78,10 @@ export function GeneratedProjectView({ status, onValidationReportSubmitted }: Ge
           Preview ready. Browser-assisted sandbox compilation and runtime validation succeeded.
         </div>
       ) : null}
+
+      <ExportProjectPanel status={status} onRefreshStatus={onRefreshStatus} />
+      <ProjectEditPanel status={status} onRefreshStatus={onRefreshStatus} />
+      <VisualComparisonPanel status={status} onRefreshStatus={onRefreshStatus} />
 
       {status.status === "RepairFailed" ? (
         <div

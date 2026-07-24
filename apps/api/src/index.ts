@@ -3,7 +3,7 @@ import { buildServer } from "./server.js";
 
 async function main() {
   const env = validateEnv();
-  const app = await buildServer(env);
+  const { app } = await buildServer(env);
 
   try {
     await app.listen({ port: env.PORT, host: "0.0.0.0" });

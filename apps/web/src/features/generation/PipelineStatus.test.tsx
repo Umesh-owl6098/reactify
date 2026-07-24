@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { GenerationStatusResponse } from "@reactify/generation-contracts";
+import { visualComparisonPollingDefaults } from "../../test/visualComparisonPollingDefaults";
 import { PipelineStatus } from "./PipelineStatus";
 
 const readyStatus: GenerationStatusResponse = {
@@ -66,6 +67,20 @@ const readyStatus: GenerationStatusResponse = {
   awaitingPlanConfirmation: false,
   awaitingSandboxValidation: false,
   repair: null,
+  exportAllowed: false,
+  exportBlockedReason: "project_not_validated",
+  latestExportSummary: null,
+  editAllowed: false,
+  editBlockedReason: null,
+  activeEditId: null,
+  activeEditStatus: null,
+  clarificationRequired: false,
+  clarificationQuestion: null,
+  latestEditSummary: null,
+  activeVersionId: null,
+  activeVersionNumber: null,
+  sandboxRevalidationRequired: false,
+  ...visualComparisonPollingDefaults,
   featureFlags: {
     enableGenerationPlanEditing: true,
   },

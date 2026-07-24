@@ -20,7 +20,7 @@ export function useGeneration() {
   const reset = useGenerationStore((state) => state.reset);
 
   const beginGeneration = useCallback(
-    async (imageId: string) => {
+    async (imageId: string): Promise<string> => {
       try {
         setPolling(true);
         const id = await startGeneration(imageId);
@@ -31,8 +31,26 @@ export function useGeneration() {
         if (isTerminalGenerationStatus(initialStatus.status)) {
           setPolling(false);
         }
+        return id;
       } catch {
         setError("Unable to start generation. Upload an image and try again.");
+        throw new Error("Unable to start generation.");
+      }
+    },
+    [setError, setGenerationId, setPolling, setStatus],
+  );
+
+  const loadGeneration = useCallback(
+    async (id: string) => {
+      try {
+        setError("");
+        setGenerationId(id);
+        const initialStatus = await fetchGenerationStatus(id);
+        setStatus(initialStatus);
+        setPolling(!isTerminalGenerationStatus(initialStatus.status));
+      } catch {
+        setError("This generation is unavailable or may have been deleted.");
+        setPolling(false);
       }
     },
     [setError, setGenerationId, setPolling, setStatus],
@@ -82,6 +100,7 @@ export function useGeneration() {
     error,
     isPolling,
     beginGeneration,
+    loadGeneration,
     resumePolling,
     reset,
   };
