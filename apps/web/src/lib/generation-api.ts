@@ -42,7 +42,7 @@ import {
   type PreviewScreenshotSubmission,
   type VisualCorrectionRequest,
 } from "@reactify/generation-contracts";
-import { type APIErrorBody } from "@reactify/shared";
+import { type APIErrorBody, JobAcceptedResponseSchema } from "@reactify/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -57,23 +57,73 @@ export class GenerationApiRequestError extends Error {
   constructor(
     message: string,
     readonly code?: string,
+    readonly status?: number,
   ) {
     super(message);
     this.name = "GenerationApiRequestError";
   }
 }
 
-function parseGenerationApiError(responseText: string, fallbackMessage: string): GenerationApiRequestError {
+function parseGenerationApiError(
+  responseText: string,
+  fallbackMessage: string,
+  status?: number,
+): GenerationApiRequestError {
+  if (!responseText.trim()) {
+    if (status === 401) {
+      return new GenerationApiRequestError("Authentication is required.", "AUTHENTICATION_REQUIRED", status);
+    }
+    if (status === 404) {
+      return new GenerationApiRequestError("Generation not found.", "GENERATION_NOT_FOUND", status);
+    }
+    if (status === 503 || status === 502 || status === 504) {
+      return new GenerationApiRequestError("The API server is unavailable.", "DATABASE_UNAVAILABLE", status);
+    }
+    return new GenerationApiRequestError(fallbackMessage, undefined, status);
+  }
+
   try {
     const body = JSON.parse(responseText) as APIErrorBody;
     if (body.error?.message) {
-      return new GenerationApiRequestError(body.error.message, body.error.code);
+      return new GenerationApiRequestError(body.error.message, body.error.code, status);
     }
   } catch {
     // fall through
   }
 
-  return new GenerationApiRequestError(fallbackMessage);
+  return new GenerationApiRequestError(fallbackMessage, undefined, status);
+}
+
+export function mapGenerationLoadError(error: unknown, fallbackMessage: string): string {
+  if (error instanceof GenerationApiRequestError) {
+    if (error.code === "AUTHENTICATION_REQUIRED" || error.status === 401) {
+      return "Your session has expired. Sign in again to view this generation.";
+    }
+    if (error.code === "GENERATION_NOT_FOUND" || error.status === 404) {
+      return "Generation not found.";
+    }
+    if (error.code === "GENERATION_DATA_INVALID") {
+      return "Persisted generation data is invalid.";
+    }
+    if (
+      error.code === "DATABASE_UNAVAILABLE" ||
+      error.status === 503 ||
+      error.status === 502 ||
+      error.status === 504
+    ) {
+      return "The API server is unavailable.";
+    }
+    if (error.status && error.status >= 500) {
+      return "Unexpected loading error.";
+    }
+    return error.message || fallbackMessage;
+  }
+
+  if (error instanceof Error && error.name === "ZodError") {
+    return "Persisted generation data is invalid.";
+  }
+
+  return fallbackMessage;
 }
 
 export function formatExportErrorMessage(error: unknown): string {
@@ -124,7 +174,7 @@ export async function submitSandboxValidation(
   return body.status;
 }
 
-export async function startGeneration(imageId: string): Promise<string> {
+export async function startGeneration(imageId: string): Promise<{ generationId: string; jobId?: string }> {
   const response = await apiFetch(`${API_BASE}/api/v1/generations`, {
     method: "POST",
     headers: {
@@ -137,20 +187,48 @@ export async function startGeneration(imageId: string): Promise<string> {
     throw new Error("Failed to start generation.");
   }
 
-  const body = CreateGenerationResponseSchema.parse(await response.json());
-  return body.generationId;
+  const body = await response.json();
+  const parsed = CreateGenerationResponseSchema.parse(body);
+  const jobId = body.job ? JobAcceptedResponseSchema.parse(body.job).jobId : undefined;
+  return { generationId: parsed.generationId, jobId };
+}
+
+export async function retryGeneration(generationId: string): Promise<string> {
+  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/retry`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw parseGenerationApiError(await response.text(), "Unable to retry generation.", response.status);
+  }
+
+  const body = (await response.json()) as { status?: string };
+  return body.status ?? "Analyzing";
 }
 
 export async function fetchGenerationStatus(
   generationId: string,
 ): Promise<GenerationStatusResponse> {
   const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}`);
+  const responseText = await response.text();
 
   if (!response.ok) {
-    throw new GenerationApiRequestError("Failed to fetch generation status.");
+    throw parseGenerationApiError(responseText, "Failed to fetch generation status.", response.status);
   }
 
-  return GenerationStatusResponseSchema.parse(await response.json());
+  let body: unknown;
+  try {
+    body = JSON.parse(responseText);
+  } catch {
+    throw new GenerationApiRequestError("Failed to fetch generation status.", undefined, response.status);
+  }
+
+  const parsed = GenerationStatusResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new GenerationApiRequestError("Persisted generation data is invalid.", "GENERATION_DATA_INVALID", response.status);
+  }
+
+  return parsed.data;
 }
 
 export async function fetchGenerationList(input: {

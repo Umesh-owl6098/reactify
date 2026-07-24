@@ -7,6 +7,7 @@ import { SignInPage } from "../features/auth/SignInPage";
 import { GenerationHistoryPage } from "../features/generation-history/GenerationHistoryPage";
 import { GenerationWorkspacePage } from "../features/generation/GenerationWorkspacePage";
 import { AppHeader } from "../features/layout/AppHeader";
+import { SystemReadinessBanner } from "../features/system/SystemReadinessBanner";
 
 function RoutedGenerationWorkspace() {
   const { generationId } = useParams<{ generationId: string }>();
@@ -18,6 +19,7 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
     <ProtectedRoute>
       <div className="min-h-screen bg-slate-950 text-slate-50">
         <AppHeader />
+        <SystemReadinessBanner />
         {children}
       </div>
     </ProtectedRoute>

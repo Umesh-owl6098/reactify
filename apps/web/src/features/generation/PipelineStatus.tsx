@@ -5,6 +5,8 @@ import type {
   GenerationUserStatus,
   GenerationStatusResponse,
 } from "@reactify/generation-contracts";
+import type { JobStatusResponse } from "@reactify/shared";
+import { GenerationFailureRetry } from "./GenerationFailureRetry.js";
 
 const STATUS_LABELS: Record<GenerationUserStatus, string> = {
   Queued: "Queued",
@@ -22,28 +24,58 @@ const STATUS_LABELS: Record<GenerationUserStatus, string> = {
   Cancelled: "Cancelled",
 };
 
-interface PipelineStatusProps {
-  status: GenerationStatusResponse | null;
-  isPolling: boolean;
-  error: string | null;
+const UNKNOWN_STATUS_LABEL = "Unknown status";
+
+function getStatusLabel(status: GenerationUserStatus | string): string {
+  return STATUS_LABELS[status as GenerationUserStatus] ?? UNKNOWN_STATUS_LABEL;
 }
 
-export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps) {
-  if (!status && !error) {
+interface PipelineStatusProps {
+  status: GenerationStatusResponse | null;
+  isLoading?: boolean;
+  isPolling: boolean;
+  error: string | null;
+  job?: JobStatusResponse | null;
+  onRetried?: () => void;
+}
+
+export function PipelineStatus({
+  status,
+  isLoading = false,
+  isPolling,
+  error,
+  job = null,
+  onRetried = () => {},
+}: PipelineStatusProps) {
+  if (!status && !error && !isLoading) {
     return null;
   }
 
   const activeStatus = status?.status ?? "Queued";
+  const statusLabel = getStatusLabel(activeStatus);
   const analysisError = status?.errors.find((entry) => entry.stage === "design_analysis");
   const designAnalysis = status?.outputs.designAnalysis;
   const analysisMetadata = status?.analysis;
   const isPlanningReview = status?.status === "Planning" && status.awaitingPlanConfirmation;
-  const isAnalyzing = activeStatus === "Analyzing" && isPolling;
+  const jobIsRunning = job ? ["claimed", "running"].includes(job.status) : false;
+  const jobIsRetryScheduled = job?.status === "retry_scheduled";
+  const jobIsTerminalFailure = job ? ["failed", "dead_letter", "cancelled"].includes(job.status) : false;
+  const isAnalyzing =
+    activeStatus === "Analyzing" && isPolling && jobIsRunning && !jobIsTerminalFailure;
   const analysisCompleted = Boolean(designAnalysis && analysisMetadata);
-  const analysisFailed = Boolean(analysisError);
+  const analysisFailed =
+    activeStatus !== "Failed" &&
+    activeStatus !== "Cancelled" &&
+    (Boolean(analysisError) || (activeStatus === "Analyzing" && jobIsTerminalFailure));
 
   return (
     <section className="w-full max-w-3xl" aria-labelledby="pipeline-status-heading">
+      {isLoading && !status ? (
+        <div className="mb-6 rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-sm text-slate-300" role="status">
+          Loading generation pipeline…
+        </div>
+      ) : null}
+
       <div className="mb-4 text-left">
         <h2 id="pipeline-status-heading" className="text-xl font-semibold text-white">
           Generation pipeline
@@ -75,7 +107,7 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
                 aria-current={isActive ? "step" : undefined}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-slate-100">{STATUS_LABELS[step]}</span>
+                  <span className="text-sm font-medium text-slate-100">{getStatusLabel(step)}</span>
                   {isActive ? (
                     <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-indigo-300" />
                   ) : null}
@@ -91,7 +123,7 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-slate-300">
               Current status:{" "}
-              <span className="font-semibold text-white">{STATUS_LABELS[activeStatus]}</span>
+              <span className="font-semibold text-white">{statusLabel}</span>
             </p>
             {status.activeStage ? (
               <p className="text-xs uppercase tracking-wide text-slate-400">
@@ -99,6 +131,25 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
               </p>
             ) : null}
           </div>
+
+          {activeStatus === "Failed" ? (
+            <StatusBanner tone="error" title="Generation failed">
+              {getFailedGenerationMessage(status)}
+            </StatusBanner>
+          ) : null}
+
+          {status.retryAllowed ? (
+            <GenerationFailureRetry
+              generationId={status.id}
+              onRetried={onRetried}
+            />
+          ) : null}
+
+          {activeStatus === "Cancelled" ? (
+            <StatusBanner tone="error" title="Generation cancelled">
+              This generation was cancelled before it completed.
+            </StatusBanner>
+          ) : null}
 
           {isPlanningReview ? (
             <StatusBanner tone="info" title="Awaiting plan confirmation">
@@ -148,8 +199,29 @@ export function PipelineStatus({ status, isPolling, error }: PipelineStatusProps
             </StatusBanner>
           ) : null}
 
+          {jobIsRetryScheduled && activeStatus === "Analyzing" ? (
+            <StatusBanner tone="info" title="Retry scheduled">
+              {`Design analysis will retry automatically. ${job?.progressMessage ?? "Waiting for the next attempt."}`}
+            </StatusBanner>
+          ) : null}
+
+          {activeStatus === "Analyzing" && job?.status === "queued" && isPolling ? (
+            <StatusBanner tone="info" title="Queued for analysis">
+              Waiting for the Reactify worker to start design analysis.
+            </StatusBanner>
+          ) : null}
+
           {analysisFailed ? (
-            <AnalysisFailureBanner error={analysisError!} />
+            <AnalysisFailureBanner
+              error={
+                analysisError ??
+                ({
+                  stage: "design_analysis",
+                  code: job?.failureCode ?? "JOB_STALLED",
+                  message: job?.failureMessage ?? status?.errors[0]?.message ?? "Design analysis failed.",
+                } as GenerationStatusResponse["errors"][number])
+              }
+            />
           ) : null}
 
           {analysisCompleted ? (
@@ -196,6 +268,15 @@ function AnalysisFailureBanner({
   );
 }
 
+function getFailedGenerationMessage(status: GenerationStatusResponse): string {
+  const latestError = status.errors.at(-1);
+  if (latestError?.code === "JOB_NOT_FOUND") {
+    return "The background design job was not available.";
+  }
+
+  return latestError?.message ?? "This generation did not complete successfully.";
+}
+
 function getAnalysisFailureTitle(code: string): string {
   switch (code) {
     case "AI_TIMEOUT":
@@ -206,6 +287,22 @@ function getAnalysisFailureTitle(code: string): string {
       return "Invalid design analysis schema";
     case "AI_ERROR":
       return "Analysis failed";
+    case "JOB_STALLED":
+      return "Operation stalled";
+    case "JOB_NOT_FOUND":
+      return "Background job missing";
+    case "WORKER_INTERRUPTED":
+      return "Worker interrupted";
+    case "AI_PROVIDER_NOT_CONFIGURED":
+      return "AI provider not configured";
+    case "AI_USAGE_RESERVATION_EXPIRED":
+      return "Usage reservation expired";
+    case "IMAGE_ARTIFACT_NOT_FOUND":
+      return "Uploaded image unavailable";
+    case "AI_MONTHLY_BUDGET_EXCEEDED":
+      return "Monthly AI budget exceeded";
+    case "AI_TOKEN_LIMIT_EXCEEDED":
+      return "Monthly token limit exceeded";
     case "IMAGE_NOT_FOUND":
       return "Image not found";
     default:

@@ -7,7 +7,19 @@ import { defineConfig } from "vite";
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "reactify-web-startup-log",
+      configureServer(server) {
+        server.httpServer?.once("listening", () => {
+          const address = server.httpServer?.address();
+          const port = typeof address === "object" && address ? address.port : 5174;
+          console.info(`Reactify web ready at http://localhost:${port}`);
+        });
+      },
+    },
+  ],
   resolve: {
     alias: {
       "@reactify/shared": path.resolve(rootDir, "../../packages/shared/src/index.ts"),
