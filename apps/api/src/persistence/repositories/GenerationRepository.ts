@@ -111,10 +111,8 @@ export class GenerationRepository {
           });
         }
 
-        await tx.projectVersion.deleteMany({ where: { generationId: record.id } });
-        if (record.versions.length > 0) {
-          await tx.projectVersion.createMany({
-            data: record.versions.map((version) => ({
+        for (const version of record.versions) {
+          const data = {
               generationId: record.id,
               versionId: version.versionId,
               versionNumber: version.versionNumber,
@@ -126,14 +124,22 @@ export class GenerationRepository {
               changedFiles: version.changedFiles,
               editId: version.editId ?? null,
               instruction: version.instruction ?? null,
-            })),
+              createdAt: new Date(version.createdAt),
+          };
+          await tx.projectVersion.upsert({
+            where: {
+              generationId_versionId: {
+                generationId: record.id,
+                versionId: version.versionId,
+              },
+            },
+            create: data,
+            update: data,
           });
         }
 
-        await tx.repairAttempt.deleteMany({ where: { generationId: record.id } });
-        if (record.repairAttempts.length > 0) {
-          await tx.repairAttempt.createMany({
-            data: record.repairAttempts.map((attempt) => ({
+        for (const attempt of record.repairAttempts) {
+          const data = {
               generationId: record.id,
               attemptNumber: attempt.attemptNumber,
               status: attempt.status,
@@ -161,14 +167,21 @@ export class GenerationRepository {
               unresolvedRisks: attempt.unresolvedRisks,
               startedAt: new Date(attempt.startedAt),
               completedAt: attempt.completedAt ? new Date(attempt.completedAt) : null,
-            })),
+          };
+          await tx.repairAttempt.upsert({
+            where: {
+              generationId_attemptNumber: {
+                generationId: record.id,
+                attemptNumber: attempt.attemptNumber,
+              },
+            },
+            create: data,
+            update: data,
           });
         }
 
-        await tx.projectEdit.deleteMany({ where: { generationId: record.id } });
         for (const edit of record.edits) {
-          await tx.projectEdit.create({
-            data: {
+          const data = {
               editId: edit.editId,
               generationId: record.id,
               sourceVersionId: edit.sourceVersionId,
@@ -193,14 +206,16 @@ export class GenerationRepository {
               failureReason: edit.failureReason ?? null,
               createdAt: new Date(edit.createdAt),
               completedAt: edit.completedAt ? new Date(edit.completedAt) : null,
-            },
+          };
+          await tx.projectEdit.upsert({
+            where: { editId: edit.editId },
+            create: data,
+            update: data,
           });
         }
 
-        await tx.visualComparison.deleteMany({ where: { generationId: record.id } });
         for (const comparison of record.visualComparisons) {
-          await tx.visualComparison.create({
-            data: {
+          const data = {
               comparisonId: comparison.comparisonId,
               generationId: record.id,
               versionId: comparison.versionId,
@@ -221,17 +236,16 @@ export class GenerationRepository {
               idempotencyFingerprint: comparison.idempotencyFingerprint ?? null,
               createdAt: new Date(comparison.createdAt),
               completedAt: comparison.completedAt ? new Date(comparison.completedAt) : null,
-              correctionAttempts: {
-                create: [],
-              },
-            },
+          };
+          await tx.visualComparison.upsert({
+            where: { comparisonId: comparison.comparisonId },
+            create: data,
+            update: data,
           });
         }
 
-        await tx.projectExport.deleteMany({ where: { generationId: record.id } });
-        if (record.exports.length > 0) {
-          await tx.projectExport.createMany({
-            data: record.exports.map((entry) => ({
+        for (const entry of record.exports) {
+          const data = {
               exportId: entry.exportId,
               generationId: record.id,
               versionId: entry.versionId,
@@ -244,10 +258,18 @@ export class GenerationRepository {
               versionNumber: entry.versionNumber,
               idempotencyFingerprint: entry.idempotencyFingerprint ?? null,
               failureReason: entry.failureReason ?? null,
-              options: {},
+              artifactReference: entry.artifactReference ?? null,
+              options: {
+                includeMetadata: entry.includeMetadata ?? true,
+                includeGenerationSummary: entry.includeGenerationSummary ?? false,
+              },
               createdAt: new Date(entry.createdAt),
               completedAt: entry.completedAt ? new Date(entry.completedAt) : null,
-            })),
+          };
+          await tx.projectExport.upsert({
+            where: { exportId: entry.exportId },
+            create: data,
+            update: data,
           });
         }
 

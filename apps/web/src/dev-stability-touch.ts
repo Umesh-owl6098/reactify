@@ -1,0 +1,1 @@
+export const STABILITY_TOUCH = 1784963199931;

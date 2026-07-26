@@ -79,7 +79,7 @@ export function ProjectEditPanel({ status, onRefreshStatus }: ProjectEditPanelPr
         <button
           type="button"
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!editState.editAllowed || editState.isSubmitting || !editState.instruction.trim()}
+          disabled={editState.isSubmitting || !editState.instruction.trim()}
           aria-label="Submit AI edit"
           onClick={() => void editState.submitEdit()}
         >

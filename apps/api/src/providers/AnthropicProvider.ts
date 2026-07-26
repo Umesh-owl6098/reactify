@@ -6,17 +6,9 @@ import type {
   AIProvider,
 } from "@reactify/shared";
 import { ErrorCode } from "@reactify/shared";
+import { AIProviderError, isTimeoutLikeError } from "./provider-errors.js";
 
-export class AIProviderError extends Error {
-  constructor(
-    message: string,
-    readonly errorCode: typeof ErrorCode.AI_TIMEOUT | typeof ErrorCode.AI_ERROR,
-    readonly providerCause?: unknown,
-  ) {
-    super(message);
-    this.name = "AIProviderError";
-  }
-}
+export { AIProviderError } from "./provider-errors.js";
 
 export interface AnthropicClientLike {
   messages: {
@@ -40,7 +32,7 @@ export interface AnthropicClientLike {
           >;
         }>;
       },
-      options?: { timeout?: number },
+      options?: { timeout?: number; signal?: AbortSignal },
     ) => Promise<{
       id?: string;
       model: string;
@@ -90,13 +82,20 @@ export class AnthropicProvider implements AIProvider {
           temperature: options.temperature,
           messages: [{ role: "user", content }],
         },
-        { timeout: options.timeoutMs },
+        { timeout: options.timeoutMs, signal: options.signal as AbortSignal | undefined },
       );
 
       const rawText = response.content
         .filter((block) => block.type === "text")
         .map((block) => block.text ?? "")
         .join("");
+
+      if (!rawText.trim()) {
+        throw new AIProviderError(
+          "Anthropic returned an empty structured response.",
+          ErrorCode.AI_RESPONSE_INVALID,
+        );
+      }
 
       return {
         rawText,
@@ -110,25 +109,17 @@ export class AnthropicProvider implements AIProvider {
         usageSource: "provider_reported" as const,
       };
     } catch (error) {
-      if (isTimeoutError(error)) {
+      if (error instanceof AIProviderError) {
+        throw error;
+      }
+
+      if (isTimeoutLikeError(error)) {
         throw new AIProviderError("Anthropic request timed out.", ErrorCode.AI_TIMEOUT, error);
       }
 
       throw new AIProviderError("Anthropic request failed.", ErrorCode.AI_ERROR, error);
     }
   }
-}
-
-function isTimeoutError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    error.name === "TimeoutError" ||
-    error.message.toLowerCase().includes("timeout") ||
-    error.message.toLowerCase().includes("timed out")
-  );
 }
 
 export function createAnthropicProvider(apiKey: string, defaultModel: string): AnthropicProvider {

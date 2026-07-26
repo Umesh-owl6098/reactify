@@ -4,11 +4,11 @@ import { ErrorCode } from "@reactify/shared";
 import { AuthApiError, registerAccount } from "./authApi";
 import { AuthField, AuthForm, AuthHelpText } from "./AuthForm";
 import { AuthLayout } from "./AuthLayout";
-import { useAuthStore } from "./authStore";
+import { useSession } from "./useSession.js";
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const setUser = useAuthStore((state) => state.setUser);
+  const { completeSignIn } = useSession();
   const passwordHelpId = useId();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -33,7 +33,7 @@ export function RegisterPage() {
     setIsSubmitting(true);
     try {
       const result = await registerAccount({ email, password, displayName });
-      setUser(result.user, result.sessionExpiresAt ?? null);
+      completeSignIn(result.user, result.sessionExpiresAt ?? null);
       navigate("/", { replace: true });
     } catch (error) {
       if (error instanceof AuthApiError && error.code === ErrorCode.EMAIL_ALREADY_REGISTERED) {

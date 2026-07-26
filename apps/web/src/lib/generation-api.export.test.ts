@@ -3,6 +3,7 @@ import {
   ExportRequestSchema,
   ExportSummarySchema,
 } from "@reactify/generation-contracts";
+import { JobAcceptedResponseSchema } from "@reactify/shared";
 import {
   formatExportErrorMessage,
   GenerationApiRequestError,
@@ -30,6 +31,33 @@ describe("export API helpers", () => {
     expect(formatExportErrorMessage(error)).toBe(
       "Export failed: package.json dependencies are invalid.",
     );
+  });
+
+  it("parses async export responses with background jobs", () => {
+    const summary = ExportSummarySchema.parse({
+      exportId: "880e8400-e29b-41d4-a716-446655440000",
+      status: "preparing",
+      filename: "mocklandingpage-v1.zip",
+      projectName: "mocklandingpage",
+      generationId: "cdbc3aab-d9c4-4256-84fa-59d5f91c51ba",
+      versionId: "5cfb85a2a232b35cde9ca40212df0142678cfa23226aa3d0049f6b844b5e6101",
+      versionNumber: 1,
+      projectHash: "5cfb85a2a232b35cde9ca40212df0142678cfa23226aa3d0049f6b844b5e6101",
+      fileCount: 0,
+      totalSizeBytes: 0,
+      createdAt: new Date().toISOString(),
+    });
+    const job = JobAcceptedResponseSchema.parse({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      generationId: "cdbc3aab-d9c4-4256-84fa-59d5f91c51ba",
+      jobType: "export_preparation",
+      status: "queued",
+      createdAt: new Date().toISOString(),
+      statusUrl: "/api/v1/jobs/11111111-1111-4111-8111-111111111111",
+    });
+
+    expect(summary.status).toBe("preparing");
+    expect(job.jobId).toBe("11111111-1111-4111-8111-111111111111");
   });
 
   it("parses ready export summaries returned by the API", () => {

@@ -5,6 +5,7 @@ import {
 } from "@reactify/generation-contracts";
 import { ErrorCode } from "@reactify/shared";
 import { extractJsonFromModelText } from "./extractJson.js";
+import { formatZodValidationIssues, type ValidationIssueDetail } from "./formatValidationIssues.js";
 
 export interface ParsedDesignAnalysisSuccess {
   ok: true;
@@ -17,6 +18,8 @@ export interface ParsedDesignAnalysisFailure {
     | typeof ErrorCode.AI_RESPONSE_VERSION_MISSING
     | typeof ErrorCode.ANALYSIS_SCHEMA_INVALID;
   message: string;
+  /** Populated for schema failures so the log names the offending field. */
+  validationIssues?: ValidationIssueDetail[];
 }
 
 export type ParsedDesignAnalysisResult =
@@ -51,6 +54,7 @@ export function parseDesignAnalysisResponse(rawText: string): ParsedDesignAnalys
       ok: false,
       errorCode: ErrorCode.ANALYSIS_SCHEMA_INVALID,
       message: "Design analysis response failed schema validation.",
+      validationIssues: formatZodValidationIssues(analysisResult.error),
     };
   }
 

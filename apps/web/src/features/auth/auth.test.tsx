@@ -6,14 +6,18 @@ import { SignInPage } from "./SignInPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 import * as authApi from "./authApi";
 import { useAuthStore } from "./authStore";
+import { resetInitialSessionRestoreFlag } from "./session-restore";
 
 describe("auth UI", () => {
   beforeEach(() => {
+    resetInitialSessionRestoreFlag();
     useAuthStore.setState({
       user: null,
       sessionExpiresAt: null,
       isInitialized: true,
       isLoading: false,
+      sessionStatus: "unauthenticated",
+      sessionError: null,
     });
     vi.restoreAllMocks();
   });

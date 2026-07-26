@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import sharp from "sharp";
 import type {
   PreviewScreenshotSubmission,
   VisualComparisonRequest,
@@ -7,7 +8,7 @@ import type {
   VisualCorrectionV1,
 } from "@reactify/generation-contracts";
 import { VisualComparisonResultSchema } from "@reactify/generation-contracts";
-import type { AIProvider, LoadPromptFn } from "@reactify/shared";
+import type { AIImageInput, AIInput, AIProvider, LoadPromptFn } from "@reactify/shared";
 import { ErrorCode, type ErrorCode as ErrorCodeType } from "@reactify/shared";
 import type { Env } from "../../env.js";
 import type { GenerationRecord } from "../../pipeline/types.js";
@@ -15,12 +16,15 @@ import { ALLOWED_DEPENDENCIES } from "../allowlist.js";
 import type { ImageStorage } from "../imageStorage.js";
 import { applyProjectPatch } from "../repair/patchApplicator.js";
 import { validateProjectPatch } from "../repair/patchValidator.js";
-import { AIProviderError } from "../../providers/AnthropicProvider.js";
+import { AIProviderError } from "../../providers/provider-errors.js";
+import { resolveActiveModel } from "../../providers/ai-provider-config.js";
 import { createProjectVersion } from "../edit/versionStore.js";
 import { ComparisonArtifactStore } from "./comparisonArtifactStore.js";
 import { runVisualComparison } from "./comparisonEngine.js";
 import { parseVisualCorrectionResponse } from "./parseVisualCorrectionResponse.js";
+import { resolveComparisonViewport } from "./resolveComparisonViewport.js";
 import { validatePreviewScreenshot } from "./screenshotValidator.js";
+import { summarizeFidelityIssues, validateVisualFidelity } from "../visual-fidelity/visualFidelityValidator.js";
 import { evaluateVisualComparisonEligibility } from "./visualComparisonEligibility.js";
 import { visualCorrectionToPatch } from "./visualCorrectionToPatch.js";
 
@@ -111,6 +115,26 @@ export class VisualComparisonService {
     return comparison ? toResult(comparison) : undefined;
   }
 
+  /** Dimensions of the uploaded design, or null when it cannot be measured. */
+  private async readSourceDimensions(record: GenerationRecord): Promise<{ width: number; height: number } | null> {
+    try {
+      const sourceImage = await this.deps.imageStorage.get(record.imageId);
+      if (!sourceImage) {
+        return null;
+      }
+
+      const metadata = await sharp(sourceImage.buffer).metadata();
+      if (!metadata.width || !metadata.height) {
+        return null;
+      }
+
+      return { width: metadata.width, height: metadata.height };
+    } catch {
+      // A viewport fallback is always better than blocking the comparison.
+      return null;
+    }
+  }
+
   private verifyProjectHash(record: GenerationRecord, expectedProjectHash: string): VisualComparisonServiceResult | null {
     if (!record.projectHash || record.projectHash !== expectedProjectHash) {
       return {
@@ -143,11 +167,16 @@ export class VisualComparisonService {
       return hashError;
     }
 
+    // The client only knows a viewport preset. The server owns the uploaded
+    // design, so it is the only place that can align the capture viewport with
+    // the real source aspect ratio.
+    const viewport = resolveComparisonViewport(request.viewport, await this.readSourceDimensions(record));
+
     const fingerprint = computeComparisonFingerprint({
       generationId: record.id,
       versionId: record.activeVersionId!,
       projectHash: record.projectHash!,
-      viewport: request.viewport,
+      viewport,
       idempotencyKey,
     });
 
@@ -170,11 +199,7 @@ export class VisualComparisonService {
       status: "awaiting_capture",
       sourceImage: { width: 0, height: 0 },
       previewImage: { width: 0, height: 0 },
-      viewport: {
-        width: request.viewport.width,
-        height: request.viewport.height,
-        deviceScaleFactor: request.viewport.deviceScaleFactor ?? 1,
-      },
+      viewport,
       overallSimilarityScore: 0,
       pixelDifferencePercentage: 0,
       structuralDifferenceScore: 0,
@@ -291,8 +316,8 @@ export class VisualComparisonService {
       comparison.screenshotSubmitted = true;
 
       await this.deps.artifactStore.saveArtifacts(record.id, comparison.comparisonId, {
-        source: result.artifacts.sourceThumbnail,
-        preview: result.artifacts.previewThumbnail,
+        source: result.artifacts.sourcePng,
+        preview: result.artifacts.previewPng,
         diff: result.artifacts.diffPng,
         overlay: result.artifacts.overlayPng,
         regions: result.artifacts.regionsPng,
@@ -533,10 +558,39 @@ export class VisualComparisonService {
           outcome: entry.improvementOutcome,
         }));
 
+      // Region boxes and a similarity number describe *that* the preview is
+      // wrong, never *what it should look like*. Without the design itself the
+      // model can only nudge colours and spacing, which is why corrections
+      // never recovered objects the first pass dropped.
+      const sourceInputs: AIInput[] = [];
+      const composition = record.outputs.designAnalysis?.visualComposition;
+      try {
+        const sourceImage = await this.deps.imageStorage.get(record.imageId);
+        if (sourceImage) {
+          sourceInputs.push({ text: "Original uploaded design screenshot (the target to match):" });
+          sourceInputs.push({
+            base64: sourceImage.buffer.toString("base64"),
+            mimeType: sourceImage.mimeType as AIImageInput["mimeType"],
+          });
+        }
+      } catch {
+        // A missing source only weakens the correction; it must not fail it.
+      }
+
+      if (composition) {
+        const report = validateVisualFidelity(composition, project);
+        if (!report.acceptable) {
+          sourceInputs.push({
+            text: `Structural fidelity issues that must be fixed:\n${summarizeFidelityIssues(report)}`,
+          });
+        }
+      }
+
       const invocation = await this.deps.aiProvider.invoke(
         [
           { text: prompt.content },
           { text: `Approved dependency allowlist:\n${allowlist}` },
+          ...sourceInputs,
           { text: `Visual comparison summary:\n${comparison.summary}` },
           { text: `Difference regions:\n${JSON.stringify(comparison.regions)}` },
           { text: `Active GeneratedProjectV1:\n${JSON.stringify(project)}` },
@@ -547,7 +601,7 @@ export class VisualComparisonService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: this.deps.env.ANTHROPIC_MODEL,
+          model: resolveActiveModel(this.deps.env),
           temperature: this.deps.env.AI_TEMPERATURE,
           maxTokens: this.deps.env.AI_MAX_TOKENS,
           timeoutMs: this.deps.env.AI_TIMEOUT_MS,

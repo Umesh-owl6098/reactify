@@ -1,7 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useSession, useSignOut } from "../auth/useSession";
+import { startNewGeneration } from "../generation/startNewGeneration";
 
 export function AppHeader() {
+  const navigate = useNavigate();
   const { user } = useSession();
   const signOut = useSignOut();
 
@@ -14,6 +16,13 @@ export function AppHeader() {
         <div className="flex items-center gap-4 text-sm text-slate-200">
           {user ? (
             <>
+              <button
+                type="button"
+                onClick={() => startNewGeneration(navigate)}
+                className="rounded-md bg-indigo-500 px-3 py-1.5 font-medium text-white hover:bg-indigo-400"
+              >
+                New generation
+              </button>
               <span>Signed in as {user.displayName}</span>
               <Link to="/account" className="rounded-md px-2 py-1 hover:bg-slate-800">
                 Account

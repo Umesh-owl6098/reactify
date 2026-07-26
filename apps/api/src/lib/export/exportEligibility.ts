@@ -24,7 +24,7 @@ export function getActiveProjectVersion(record: GenerationRecord): ActiveProject
   return {
     versionId: record.activeVersionId ?? record.projectHash,
     versionNumber: activeVersion?.versionNumber ?? resolveVersionNumber(record),
-    projectHash: record.projectHash,
+    projectHash: activeVersion?.projectHash ?? record.projectHash,
   };
 }
 
@@ -33,7 +33,10 @@ export function resolveVersionNumber(record: GenerationRecord): number {
   return Math.max(1, succeededRepairs + 1);
 }
 
-export function evaluateExportEligibility(record: GenerationRecord | undefined): ExportEligibilityResult {
+export function evaluateExportEligibility(
+  record: GenerationRecord | undefined,
+  options?: { activeExportId?: string },
+): ExportEligibilityResult {
   if (!record) {
     return {
       ok: false,
@@ -53,8 +56,11 @@ export function evaluateExportEligibility(record: GenerationRecord | undefined):
   }
 
   if (record.exportInProgress) {
-    const preparingExport = record.exports.some((entry) => entry.status === "preparing");
-    if (preparingExport) {
+    const preparingExport = record.exports.find((entry) => entry.status === "preparing");
+    const activeExportMatches =
+      options?.activeExportId &&
+      preparingExport?.exportId === options.activeExportId;
+    if (preparingExport && !activeExportMatches) {
       return {
         ok: false,
         reason: "export_in_progress",
@@ -63,7 +69,9 @@ export function evaluateExportEligibility(record: GenerationRecord | undefined):
       };
     }
 
-    record.exportInProgress = false;
+    if (!preparingExport) {
+      record.exportInProgress = false;
+    }
   }
 
   if (record.editInProgress) {

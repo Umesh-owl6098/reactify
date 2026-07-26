@@ -23,6 +23,7 @@ interface VisualComparisonStoreState {
   viewportPreset: "desktop" | "tablet" | "mobile";
   error: string | null;
   submitting: boolean;
+  captureAttempt: number;
   setPhase: (phase: VisualComparisonPhase) => void;
   setActiveComparison: (comparison: VisualComparisonResult | null) => void;
   setHistory: (history: VisualComparisonResult[]) => void;
@@ -31,6 +32,7 @@ interface VisualComparisonStoreState {
   setViewportPreset: (preset: "desktop" | "tablet" | "mobile") => void;
   setError: (error: string | null) => void;
   setSubmitting: (submitting: boolean) => void;
+  incrementCaptureAttempt: () => void;
   reset: () => void;
 }
 
@@ -43,6 +45,7 @@ const initialState = {
   viewportPreset: "desktop" as const,
   error: null,
   submitting: false,
+  captureAttempt: 0,
 };
 
 export const useVisualComparisonStore = create<VisualComparisonStoreState>((set) => ({
@@ -55,11 +58,27 @@ export const useVisualComparisonStore = create<VisualComparisonStoreState>((set)
   setViewportPreset: (viewportPreset) => set({ viewportPreset }),
   setError: (error) => set({ error }),
   setSubmitting: (submitting) => set({ submitting }),
+  incrementCaptureAttempt: () => set((state) => ({ captureAttempt: state.captureAttempt + 1 })),
   reset: () => set(initialState),
 }));
 
 export const VIEWPORT_DIMENSIONS = {
-  desktop: { width: 1440, height: 900, deviceScaleFactor: 1 },
+  desktop: { width: 1440, height: 810, deviceScaleFactor: 1 },
   tablet: { width: 768, height: 1024, deviceScaleFactor: 1 },
   mobile: { width: 390, height: 844, deviceScaleFactor: 1 },
 } as const;
+
+/** Pick a desktop viewport that preserves a 16:9 source aspect ratio. */
+export function viewportForAspectRatio(
+  sourceWidth: number,
+  sourceHeight: number,
+  preset: keyof typeof VIEWPORT_DIMENSIONS = "desktop",
+) {
+  if (sourceWidth > 0 && sourceHeight > 0) {
+    const ratio = sourceWidth / sourceHeight;
+    if (preset === "desktop" && Math.abs(ratio - 16 / 9) < 0.02) {
+      return VIEWPORT_DIMENSIONS.desktop;
+    }
+  }
+  return VIEWPORT_DIMENSIONS[preset];
+}

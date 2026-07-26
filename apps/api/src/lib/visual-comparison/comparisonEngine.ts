@@ -2,7 +2,7 @@ import pixelmatch from "pixelmatch";
 import sharp from "sharp";
 import type { VisualRegionDifference } from "@reactify/generation-contracts";
 import type { Env } from "../../env.js";
-import { createOverlayImage, createRegionsImage, createThumbnail, normalizeImage } from "./imageNormalizer.js";
+import { createOverlayImage, createRegionsImage, normalizeImage } from "./imageNormalizer.js";
 import { detectDifferenceRegions } from "./regionDetector.js";
 
 /**
@@ -34,9 +34,13 @@ export interface ComparisonEngineResult {
   correctionRecommended: boolean;
   sourceImage: { width: number; height: number };
   previewImage: { width: number; height: number };
+  /**
+   * All five artifacts share the normalized comparison dimensions so the UI can
+   * overlay them directly without rescaling.
+   */
   artifacts: {
-    sourceThumbnail: Buffer;
-    previewThumbnail: Buffer;
+    sourcePng: Buffer;
+    previewPng: Buffer;
     diffPng: Buffer;
     overlayPng: Buffer;
     regionsPng: Buffer;
@@ -60,17 +64,32 @@ export async function runVisualComparison(
   const normalizedSource = await normalizeImage(sourceBuffer, viewport.width, viewport.height);
   const normalizedPreview = await normalizeImage(previewBuffer, viewport.width, viewport.height);
 
+  const matchOptions = {
+    threshold: env.VISUAL_COMPARISON_NOISE_THRESHOLD / 255,
+    includeAA: false,
+  };
+
+  // The reviewable diff keeps a faded copy of the source behind the highlights,
+  // which means every pixel in it is opaque. Region detection needs to know
+  // which pixels actually changed, so it gets a separate mask where unchanged
+  // pixels are transparent.
   const diffRaw = Buffer.alloc(normalizedSource.width * normalizedSource.height * 4);
+  const maskRaw = Buffer.alloc(normalizedSource.width * normalizedSource.height * 4);
   const diffPixelCount = pixelmatch(
     normalizedSource.raw,
     normalizedPreview.raw,
     diffRaw,
     normalizedSource.width,
     normalizedSource.height,
-    {
-      threshold: env.VISUAL_COMPARISON_NOISE_THRESHOLD / 255,
-      includeAA: false,
-    },
+    matchOptions,
+  );
+  pixelmatch(
+    normalizedSource.raw,
+    normalizedPreview.raw,
+    maskRaw,
+    normalizedSource.width,
+    normalizedSource.height,
+    { ...matchOptions, diffMask: true },
   );
 
   const totalPixels = normalizedSource.width * normalizedSource.height;
@@ -90,7 +109,7 @@ export async function runVisualComparison(
     Math.max(0, Math.min(100, 100 - meanNormalizedPixelDifference)).toFixed(2),
   );
 
-  const regions = detectDifferenceRegions(diffRaw, normalizedSource.width, normalizedSource.height, {
+  const regions = detectDifferenceRegions(maskRaw, normalizedSource.width, normalizedSource.height, {
     noiseThreshold: env.VISUAL_COMPARISON_NOISE_THRESHOLD,
     mergeDistance: env.VISUAL_COMPARISON_REGION_MERGE_DISTANCE,
     maxRegions: env.VISUAL_COMPARISON_MAX_REGIONS,
@@ -125,9 +144,7 @@ export async function runVisualComparison(
     .png()
     .toBuffer();
 
-  const [sourceThumbnail, previewThumbnail, overlayPng, regionsPng] = await Promise.all([
-    createThumbnail(normalizedSource.png),
-    createThumbnail(normalizedPreview.png),
+  const [overlayPng, regionsPng] = await Promise.all([
     createOverlayImage(normalizedPreview.png, diffRaw, normalizedSource.width, normalizedSource.height),
     createRegionsImage(normalizedPreview.png, regions, normalizedSource.width, normalizedSource.height),
   ]);
@@ -140,16 +157,16 @@ export async function runVisualComparison(
     summary,
     correctionRecommended,
     sourceImage: {
-      width: normalizedSource.metadata.originalWidth,
-      height: normalizedSource.metadata.originalHeight,
+      width: normalizedSource.width,
+      height: normalizedSource.height,
     },
     previewImage: {
-      width: normalizedPreview.metadata.originalWidth,
-      height: normalizedPreview.metadata.originalHeight,
+      width: normalizedPreview.width,
+      height: normalizedPreview.height,
     },
     artifacts: {
-      sourceThumbnail,
-      previewThumbnail,
+      sourcePng: normalizedSource.png,
+      previewPng: normalizedPreview.png,
       diffPng,
       overlayPng,
       regionsPng,

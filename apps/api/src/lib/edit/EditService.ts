@@ -15,10 +15,12 @@ import type { GenerationRecord } from "../../pipeline/types.js";
 import { ALLOWED_DEPENDENCIES } from "../allowlist.js";
 import { applyProjectPatch } from "../repair/patchApplicator.js";
 import { validateProjectPatch } from "../repair/patchValidator.js";
-import { AIProviderError } from "../../providers/AnthropicProvider.js";
+import { resolveActiveModel } from "../../providers/ai-provider-config.js";
+import { AIProviderError } from "../../providers/provider-errors.js";
 import { normalizeProjectPath } from "../validation/filePathValidator.js";
 import { validateEditEffectiveness, requiresConfirmation, validateSelectedScope } from "./editScopeValidator.js";
 import { evaluateEditEligibility } from "./editEligibility.js";
+import { restoreGenerationReadyAfterEdit } from "../../jobs/generation-sync.js";
 import { validateEditInstruction } from "./instructionValidator.js";
 import { parseEditIntentResponse, parseProjectEditResponse } from "./parseEditResponse.js";
 import { projectEditToPatch } from "./projectEditToPatch.js";
@@ -29,6 +31,11 @@ import {
 } from "./versionStore.js";
 
 export interface InternalEditRecord extends EditOperationSummary {
+  /**
+   * Last time this edit changed state. Used by lock reconciliation to age out
+   * edits that stopped making progress without reaching a terminal status.
+   */
+  updatedAt?: string;
   idempotencyFingerprint?: string;
   pendingEdit?: ProjectEditV1;
   pendingIntent?: EditIntentV1;
@@ -70,10 +77,15 @@ function toSummary(record: InternalEditRecord): EditOperationSummary {
   });
 }
 
-function failEdit(edit: InternalEditRecord, message: string): void {
+function failEdit(edit: InternalEditRecord, record: GenerationRecord, message: string): void {
   edit.status = "failed";
   edit.failureReason = message;
   edit.completedAt = new Date().toISOString();
+  if (record.activeEditId === edit.editId) {
+    record.activeEditId = null;
+  }
+  record.editInProgress = false;
+  restoreGenerationReadyAfterEdit(record);
 }
 
 export class EditService {
@@ -120,7 +132,7 @@ export class EditService {
       const project = record.outputs.generatedProject!;
       const intentResult = await this.runIntentAnalysis(record, edit, project);
       if (!intentResult.ok) {
-        failEdit(edit, intentResult.message);
+        failEdit(edit, record, intentResult.message);
         return intentResult;
       }
 
@@ -128,12 +140,14 @@ export class EditService {
       if (intentResult.intent.clarificationRequired) {
         edit.status = "clarification_required";
         edit.clarificationQuestion = intentResult.intent.clarificationQuestion ?? "Could you clarify your request?";
+        record.editInProgress = false;
+        restoreGenerationReadyAfterEdit(record);
         return { ok: true, summary: toSummary(edit), duplicate: false };
       }
 
       return this.generateAndMaybeApply(record, edit, project, false);
     } catch {
-      failEdit(edit, "Edit failed unexpectedly.");
+      failEdit(edit, record, "Edit failed unexpectedly.");
       return {
         ok: false,
         errorCode: ErrorCode.INTERNAL_ERROR,
@@ -255,7 +269,7 @@ export class EditService {
     }
 
     if (edit.clarificationRound >= this.deps.env.MAX_EDIT_CLARIFICATION_ROUNDS) {
-      failEdit(edit, "Maximum clarification rounds reached.");
+      failEdit(edit, record, "Maximum clarification rounds reached.");
       return { ok: false, errorCode: ErrorCode.EDIT_NOT_ALLOWED, message: "Maximum clarification rounds reached.", statusCode: 409 };
     }
 
@@ -277,7 +291,7 @@ export class EditService {
     try {
       const intentResult = await this.runIntentAnalysis(record, edit, project);
       if (!intentResult.ok) {
-        failEdit(edit, intentResult.message);
+        failEdit(edit, record, intentResult.message);
         return intentResult;
       }
 
@@ -285,6 +299,8 @@ export class EditService {
       if (intentResult.intent.clarificationRequired) {
         edit.status = "clarification_required";
         edit.clarificationQuestion = intentResult.intent.clarificationQuestion ?? "Could you clarify further?";
+        record.editInProgress = false;
+        restoreGenerationReadyAfterEdit(record);
         return { ok: true, summary: toSummary(edit), duplicate: false };
       }
 
@@ -336,6 +352,7 @@ export class EditService {
     edit.completedAt = new Date().toISOString();
     record.editInProgress = false;
     record.activeEditId = null;
+    restoreGenerationReadyAfterEdit(record);
     record.updatedAt = edit.completedAt;
     return { ok: true, summary: toSummary(edit), duplicate: false };
   }
@@ -419,7 +436,7 @@ export class EditService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: this.deps.env.ANTHROPIC_MODEL,
+          model: resolveActiveModel(this.deps.env),
           temperature: this.deps.env.AI_TEMPERATURE,
           maxTokens: this.deps.env.AI_MAX_TOKENS,
           timeoutMs: this.deps.env.AI_TIMEOUT_MS,
@@ -464,7 +481,7 @@ export class EditService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: this.deps.env.ANTHROPIC_MODEL,
+          model: resolveActiveModel(this.deps.env),
           temperature: this.deps.env.AI_TEMPERATURE,
           maxTokens: this.deps.env.AI_MAX_TOKENS,
           timeoutMs: this.deps.env.AI_TIMEOUT_MS,
@@ -494,7 +511,7 @@ export class EditService {
     edit.status = "generating_patch";
     const generated = await this.generateProjectEdit(record, edit, project, edit.intent!);
     if (!generated.ok) {
-      failEdit(edit, generated.message);
+      failEdit(edit, record, generated.message);
       return generated;
     }
 
@@ -514,7 +531,7 @@ export class EditService {
             : patchValidation.errorCode === ErrorCode.PATCH_DEPENDENCY_INVALID
               ? ErrorCode.EDIT_DEPENDENCY_INVALID
               : ErrorCode.EDIT_SCHEMA_INVALID;
-      failEdit(edit, patchValidation.message);
+      failEdit(edit, record, patchValidation.message);
       return { ok: false, errorCode, message: patchValidation.message, statusCode: 409 };
     }
 
@@ -553,7 +570,7 @@ export class EditService {
     });
 
     if (!patchValidation.ok) {
-      failEdit(edit, patchValidation.message);
+      failEdit(edit, record, patchValidation.message);
       return {
         ok: false,
         errorCode: ErrorCode.EDIT_APPLY_FAILED,
@@ -564,7 +581,7 @@ export class EditService {
 
     const applied = applyProjectPatch(project, patchValidation.patch);
     if (!applied.ok) {
-      failEdit(edit, applied.message);
+      failEdit(edit, record, applied.message);
       return { ok: false, errorCode: ErrorCode.EDIT_APPLY_FAILED, message: applied.message, statusCode: 409 };
     }
 
@@ -582,7 +599,7 @@ export class EditService {
     });
 
     if (!effectiveness.ok) {
-      failEdit(edit, effectiveness.message);
+      failEdit(edit, record, effectiveness.message);
       return { ok: false, errorCode: effectiveness.errorCode, message: effectiveness.message, statusCode: 409 };
     }
 
@@ -640,6 +657,9 @@ export class EditService {
     if (!edit) {
       throw new Error("Edit not found.");
     }
+    if (edit.status !== "analyzing") {
+      throw new Error(`Edit is not awaiting intent analysis (status: ${edit.status}).`);
+    }
 
     if (hooks.shouldCancel && (await hooks.shouldCancel())) {
       throw new Error(ErrorCode.JOB_CANCELLED);
@@ -652,7 +672,7 @@ export class EditService {
     try {
       const intentResult = await this.runIntentAnalysis(record, edit, project);
       if (!intentResult.ok) {
-        failEdit(edit, intentResult.message);
+        failEdit(edit, record, intentResult.message);
         throw new Error(intentResult.message);
       }
 
@@ -662,6 +682,7 @@ export class EditService {
         edit.clarificationQuestion =
           intentResult.intent.clarificationQuestion ?? "Could you clarify your request?";
         record.editInProgress = false;
+        restoreGenerationReadyAfterEdit(record);
         return { outcome: "clarification_required" };
       }
 
@@ -680,6 +701,15 @@ export class EditService {
     if (!edit || !edit.intent) {
       throw new Error("Edit not found.");
     }
+    if (edit.status === "awaiting_confirmation") {
+      return { outcome: "awaiting_confirmation" };
+    }
+    if (edit.status === "awaiting_sandbox_validation") {
+      return { outcome: "awaiting_sandbox" };
+    }
+    if (["completed", "failed", "cancelled", "clarification_required"].includes(edit.status)) {
+      throw new Error(`Edit is terminal (status: ${edit.status}).`);
+    }
 
     if (hooks.shouldCancel && (await hooks.shouldCancel())) {
       throw new Error(ErrorCode.JOB_CANCELLED);
@@ -694,11 +724,11 @@ export class EditService {
         throw new Error(result.message);
       }
 
-      if (edit.status === "awaiting_confirmation") {
+      if (result.summary.status === "awaiting_confirmation") {
         return { outcome: "awaiting_confirmation" };
       }
 
-      if (edit.status === "awaiting_sandbox_validation") {
+      if (result.summary.status === "awaiting_sandbox_validation") {
         return { outcome: "awaiting_sandbox" };
       }
 

@@ -1,9 +1,22 @@
 import { z } from "zod";
+import { VisualCompositionV1Schema } from "./visual-composition.js";
+
+/**
+ * Models express "this field does not apply" as an explicit null far more often
+ * than by omitting the key. Treating that as a schema violation throws away an
+ * otherwise complete analysis over a field the pipeline does not even require,
+ * so optional strings accept null and normalize it to undefined.
+ */
+const optionalText = () =>
+  z
+    .string()
+    .nullish()
+    .transform((value) => value ?? undefined);
 
 export const ColorTokenSchema = z.object({
   name: z.string(),
   hex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  usage: z.string().optional(),
+  usage: optionalText(),
 });
 
 export const TypographyTokenSchema = z.object({
@@ -11,8 +24,8 @@ export const TypographyTokenSchema = z.object({
   fontFamily: z.string(),
   fontSize: z.string(),
   fontWeight: z.string(),
-  lineHeight: z.string().optional(),
-  letterSpacing: z.string().optional(),
+  lineHeight: optionalText(),
+  letterSpacing: optionalText(),
 });
 
 export const SpacingTokenSchema = z.object({
@@ -30,15 +43,23 @@ export interface ComponentNode {
   responsive?: string;
 }
 
-export const ComponentNodeSchema: z.ZodType<ComponentNode> = z.lazy(() =>
+// Input is `unknown` rather than ComponentNode because the null-tolerant
+// transforms above accept a wider shape than they produce.
+export const ComponentNodeSchema: z.ZodType<ComponentNode, z.ZodTypeDef, unknown> = z.lazy(() =>
   z.object({
     id: z.string(),
     type: z.string(),
     description: z.string(),
-    props: z.record(z.unknown()).optional(),
-    children: z.array(ComponentNodeSchema).optional(),
-    interactions: z.array(z.string()).optional(),
-    responsive: z.string().optional(),
+    props: z.record(z.unknown()).nullish().transform((value) => value ?? undefined),
+    children: z
+      .array(ComponentNodeSchema)
+      .nullish()
+      .transform((value) => value ?? undefined),
+    interactions: z
+      .array(z.string())
+      .nullish()
+      .transform((value) => value ?? undefined),
+    responsive: optionalText(),
   }),
 );
 
@@ -50,12 +71,26 @@ export const DesignAnalysisV1Schema = z.object({
   colors: z.array(ColorTokenSchema),
   typography: z.array(TypographyTokenSchema),
   spacing: z.array(SpacingTokenSchema),
-  borders: z.string().optional(),
-  shadows: z.string().optional(),
-  icons: z.array(z.string()).optional(),
-  imagePlaceholders: z.array(z.string()).optional(),
-  interactions: z.array(z.string()).optional(),
-  responsiveBehavior: z.string().optional(),
+  borders: optionalText(),
+  shadows: optionalText(),
+  icons: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? undefined),
+  imagePlaceholders: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? undefined),
+  interactions: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? undefined),
+  responsiveBehavior: optionalText(),
+  /**
+   * Optional so analyses produced before the composition format still parse.
+   * Fidelity validation is skipped when it is absent rather than failing the run.
+   */
+  visualComposition: VisualCompositionV1Schema.nullish().transform((value) => value ?? undefined),
 });
 
 export type DesignAnalysisV1 = z.infer<typeof DesignAnalysisV1Schema>;

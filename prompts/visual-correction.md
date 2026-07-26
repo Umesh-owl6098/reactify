@@ -1,5 +1,5 @@
 ---
-promptVersion: "1.0.0"
+promptVersion: "2.0.0"
 schemaVersion: "1"
 ---
 
@@ -38,12 +38,34 @@ The response must match this schema exactly:
   "unresolvedVisualRisks": ["<remaining risk>"]
 }
 
+When the original design screenshot is attached, treat it as the authoritative
+target. Compare it against the active project and reproduce what is actually
+there, rather than inferring from the difference regions alone.
+
 Rules:
-- Correct only visible mismatches supported by the comparison regions and summary.
+- Correct only visible mismatches supported by the attached screenshot, the comparison regions, and the summary.
 - Preserve working behavior and accessibility.
 - Focus on layout, spacing, typography, color, sizing, and missing visual elements.
-- Minimize changed files.
+- Prefer the smallest change that fixes the mismatch, but do not let that stop
+  you from rewriting a component outright when whole objects are missing from
+  the design. A structural fidelity issue is not fixable by tweaking spacing.
 - Avoid unrelated feature changes.
+
+Structural fidelity rules:
+- When structural fidelity issues are listed, resolving them is the priority.
+  Every object named as missing must be added.
+- Draw non-rectangular objects (tools, cranes, ladders, nibs, cans, hooks, tags)
+  as inline SVG that follows their real silhouette. A styled div is not an
+  acceptable substitute.
+- Position objects from the normalized boxes in the design analysis
+  visualComposition when it is present, scaling them to the container. Do not
+  redistribute measured positions into an evenly spaced flex row.
+- Fill the frame with the recorded background colour when the source background
+  covers the whole frame.
+- Remove invented placeholder text such as "Content block 1" or "Lorem ipsum"
+  when the corresponding source text is not legible, and replace it with neutral
+  shapes.
+- Preserve relative object sizes and overlap order from the source.
 - Do not generate backend or server code.
 - Do not create environment files.
 - Do not include shell commands.

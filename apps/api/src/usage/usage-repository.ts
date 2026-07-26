@@ -178,7 +178,10 @@ export class UsageRepository {
     usageRecord: Prisma.AiUsageRecordCreateInput;
   }) {
     return this.prisma.$transaction(async (tx) => {
-      const reservation = await tx.usageReservation.findUniqueOrThrow({ where: { id: params.reservationId } });
+      const reservation = await tx.usageReservation.findUnique({ where: { id: params.reservationId } });
+      if (!reservation) {
+        return { reservation: null, usageRecord: null };
+      }
       if (reservation.status !== "active") {
         return { reservation, usageRecord: null };
       }

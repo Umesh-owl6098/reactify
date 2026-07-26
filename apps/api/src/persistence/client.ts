@@ -2,7 +2,6 @@ import { PrismaClient } from "@prisma/client";
 import type { Env } from "../env.js";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __reactifyPrisma: PrismaClient | undefined;
 }
 

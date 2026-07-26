@@ -1,27 +1,38 @@
 import { ErrorCode } from "@reactify/shared";
+import { isAIProviderError, type AIProviderError } from "../providers/provider-errors.js";
+import {
+  extractSafeOpenAIErrorFields,
+  isRetryableAIProviderError,
+} from "../providers/openai-error-utils.js";
+import type { ProviderFailureMetadata } from "./provider-failure-metadata.js";
+import { toProviderFailureMetadata } from "./provider-failure-metadata.js";
 
 export class JobError extends Error {
+  readonly providerMetadata?: ProviderFailureMetadata;
+
   constructor(
     readonly code: string,
     message: string,
     readonly retryable: boolean = false,
     readonly permanent: boolean = false,
+    providerMetadata?: ProviderFailureMetadata,
   ) {
     super(message);
     this.name = "JobError";
+    this.providerMetadata = providerMetadata;
   }
 }
 
 export class TransientJobError extends JobError {
-  constructor(code: string, message: string) {
-    super(code, message, true, false);
+  constructor(code: string, message: string, providerMetadata?: ProviderFailureMetadata) {
+    super(code, message, true, false, providerMetadata);
     this.name = "TransientJobError";
   }
 }
 
 export class PermanentJobError extends JobError {
-  constructor(code: string, message: string) {
-    super(code, message, false, true);
+  constructor(code: string, message: string, providerMetadata?: ProviderFailureMetadata) {
+    super(code, message, false, true, providerMetadata);
     this.name = "PermanentJobError";
   }
 }
@@ -46,9 +57,22 @@ export function isTransientError(error: unknown): boolean {
   return false;
 }
 
+export function classifyAIProviderError(error: AIProviderError): JobError {
+  const metadata = toProviderFailureMetadata(extractSafeOpenAIErrorFields(error));
+  if (isRetryableAIProviderError(error)) {
+    return new TransientJobError(error.errorCode, error.message, metadata);
+  }
+
+  return new PermanentJobError(error.errorCode, error.message, metadata);
+}
+
 export function classifyProviderError(error: unknown): JobError {
   if (error instanceof JobError) {
     return error;
+  }
+
+  if (isAIProviderError(error)) {
+    return classifyAIProviderError(error);
   }
 
   const message = error instanceof Error ? error.message : "Unknown error";
@@ -59,11 +83,16 @@ export function classifyProviderError(error: unknown): JobError {
   }
 
   if (lower.includes("rate limit") || lower.includes("429")) {
-    return new TransientJobError(ErrorCode.RATE_LIMITED, "AI provider rate limit reached.");
+    return new TransientJobError(ErrorCode.AI_RATE_LIMITED, "AI provider rate limit reached.");
   }
 
-  if (lower.includes("connection") || lower.includes("econnreset") || lower.includes("network")) {
-    return new TransientJobError(ErrorCode.DATABASE_UNAVAILABLE, "Temporary connection failure.");
+  if (
+    lower.includes("connection") ||
+    lower.includes("econnreset") ||
+    lower.includes("connection reset") ||
+    lower.includes("network")
+  ) {
+    return new TransientJobError(ErrorCode.AI_PROVIDER_UNAVAILABLE, "Temporary connection failure.");
   }
 
   return new PermanentJobError(ErrorCode.INTERNAL_ERROR, "An unexpected error occurred.");

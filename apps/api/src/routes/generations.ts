@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { PrismaClient } from "@prisma/client";
 import {
   CancelGenerationResponseSchema,
   ConfirmPlanRequestSchema,
@@ -31,7 +32,14 @@ import type { PipelineRunner, GenerationStore } from "../pipeline/index.js";
 import type { JobService } from "../jobs/job-service.js";
 import { UsageLimitError } from "../jobs/job-service.js";
 import { reconcileStaleGenerationState } from "../jobs/generation-stale-reconciliation.js";
+import { reconcileGenerationLocks } from "../jobs/generation-lock-reconciliation.js";
 import { recoverFailedGeneration } from "../jobs/generation-recovery.js";
+import { PersistenceError } from "../persistence/errors.js";
+import { verifySchemaReadiness } from "../persistence/schema-readiness.js";
+import { logError, logEvent } from "../lib/structured-log.js";
+import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
+import { compileTailwindCss } from "../lib/styling/compileTailwindCss.js";
+import { normalizeProjectStyling } from "../lib/styling/normalizeProjectStyling.js";
 
 const MAX_FILE_CONTENT_BYTES = 512 * 1024;
 
@@ -64,6 +72,7 @@ export async function registerGenerationRoutes(
   images: ImageRepository,
   persistence?: PersistenceService,
   jobService?: JobService,
+  prisma?: PrismaClient,
 ): Promise<void> {
   const MAX_LIST_LIMIT = 100;
 
@@ -172,9 +181,53 @@ export async function registerGenerationRoutes(
       ownerId: request.auth.user.id,
       imageId: parsed.data.imageId,
       projectId: parsed.data.projectId,
+      deferPersist: Boolean(jobService),
+    });
+
+    logEvent("generation_created", {
+      generationId,
+      ownerId: request.auth.user.id,
+      imageId: parsed.data.imageId,
+      requestId: request.id,
+      usesBackgroundJobs: Boolean(jobService),
     });
 
     if (jobService) {
+      if (persistence && prisma) {
+        const schema = await verifySchemaReadiness(prisma);
+        if (!schema.ready) {
+          return sendError(
+            reply,
+            request,
+            503,
+            ErrorCode.DATABASE_SCHEMA_MISSING,
+            schema.message ?? "Database migrations are incomplete. Run pnpm db:migrate.",
+          );
+        }
+      }
+
+      // Non-atomic ordering: Generation row must exist before BackgroundJob FK insert.
+      // Reservation + job status updates remain separate writes until a shared transaction is added.
+      try {
+        await store.persistById(generationId);
+        logEvent("generation_persisted", { generationId, requestId: request.id });
+      } catch (error) {
+        const failureCode =
+          error instanceof PersistenceError && error.code === ErrorCode.DATABASE_UNAVAILABLE
+            ? ErrorCode.DATABASE_UNAVAILABLE
+            : ErrorCode.GENERATION_PERSIST_FAILED;
+        const failureMessage =
+          error instanceof PersistenceError
+            ? error.message
+            : "Unable to persist the generation record before queueing design analysis.";
+
+        store.markFailed(generationId, "design_analysis", failureCode, failureMessage, {
+          manualRetryAllowed: true,
+        });
+        await store.persistById(generationId);
+        return sendPersistenceError(reply, request, error);
+      }
+
       try {
         const accepted = await jobService.enqueue({
           generationId,
@@ -182,6 +235,14 @@ export async function registerGenerationRoutes(
           jobType: "design_analysis",
           payload: { generationId, imageId: parsed.data.imageId },
           idempotencyKey: `design-analysis-${generationId}`,
+        });
+        logEvent("job_enqueued", {
+          generationId,
+          jobId: accepted.job.jobId,
+          jobType: accepted.job.jobType,
+          jobStatus: accepted.job.status,
+          created: accepted.created,
+          requestId: request.id,
         });
         return reply.status(202).send({
           generationId,
@@ -195,7 +256,23 @@ export async function registerGenerationRoutes(
         const failureMessage =
           error instanceof UsageLimitError
             ? error.message
-            : "Unable to queue design analysis. Confirm database migrations are applied and the worker can start.";
+            : error instanceof PersistenceError
+              ? error.message
+              : "Unable to queue design analysis. Confirm database migrations are applied and the worker can start.";
+
+        if (!(error instanceof UsageLimitError)) {
+          logError("generation_enqueue_failed", error, {
+            generationId,
+            requestId: request.id,
+            ...(error instanceof PersistenceError
+              ? {
+                  prismaCode: error.prismaCode,
+                  modelName: error.modelName,
+                  constraintName: error.constraintName,
+                }
+              : {}),
+          });
+        }
 
         store.markFailed(generationId, "design_analysis", failureCode, failureMessage, {
           manualRetryAllowed: !(error instanceof UsageLimitError),
@@ -212,7 +289,11 @@ export async function registerGenerationRoutes(
           );
         }
 
-        return sendPersistenceError(reply, request, error);
+        return sendPersistenceError(
+          reply,
+          request,
+          error instanceof PersistenceError ? error : new PersistenceError(failureMessage, ErrorCode.JOB_ENQUEUE_FAILED),
+        );
       }
     }
 
@@ -224,16 +305,40 @@ export async function registerGenerationRoutes(
 
   app.get("/api/v1/generations/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
-    if (!record) {
+    if (!requireAuth(request, reply)) {
       return;
     }
 
-    if (jobService) {
-      await reconcileStaleGenerationState(id, store, jobService.repository, jobService.config);
+    if (persistence) {
+      const hydrated = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!hydrated) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    } else {
+      const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+      if (!record) {
+        return;
+      }
     }
 
-    const refreshed = store.get(id) ?? record;
+    if (jobService) {
+      await reconcileStaleGenerationState(id, store, jobService.repository, jobService.config, jobService);
+      await reconcileGenerationLocks(id, store, jobService.repository, {
+        editLockTimeoutMs: jobService.config.lockTtlMs,
+        visualCaptureTimeoutMs: Math.max(jobService.config.lockTtlMs * 2, 120_000),
+      });
+    }
+
+    const refreshed = store.get(id);
+    if (!refreshed) {
+      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+    }
+
     const snapshot = store.toSnapshot(refreshed);
     const response = GenerationStatusResponseSchema.parse(snapshot);
     return reply.send(response);
@@ -399,10 +504,32 @@ export async function registerGenerationRoutes(
 
   app.post("/api/v1/generations/:id/sandbox-validation", async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
+    if (persistence) {
+      const hydrated = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!hydrated) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    }
+
     const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
       return;
     }
+
+    logEvent("sandbox_validation_request_received", {
+      generationId: id,
+      awaitingSandboxValidation: record.awaitingSandboxValidation,
+      projectHash: record.projectHash,
+    });
 
     const validation = validateSandboxValidationReport(request.body, id);
     if (!validation.ok) {
@@ -509,6 +636,22 @@ export async function registerGenerationRoutes(
 
   app.get("/api/v1/generations/:id/files", async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
+    if (persistence) {
+      const hydrated = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!hydrated) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    }
+
     const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
       return;
@@ -535,6 +678,22 @@ export async function registerGenerationRoutes(
   app.get("/api/v1/generations/:id/files/content", async (request, reply) => {
     const { id } = request.params as { id: string };
     const { path: requestedPath } = request.query as { path?: string };
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
+    if (persistence) {
+      const hydrated = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!hydrated) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    }
+
     const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
     if (!record) {
       return;
@@ -581,5 +740,47 @@ export async function registerGenerationRoutes(
     });
 
     return reply.send(response);
+  });
+
+  app.get("/api/v1/generations/:id/preview-styles.css", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+
+    if (persistence) {
+      const hydrated = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!hydrated) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    }
+
+    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    if (!record) {
+      return;
+    }
+
+    if (!record.outputs.generatedProject) {
+      return sendError(
+        reply,
+        request,
+        404,
+        ErrorCode.GENERATION_NOT_FOUND,
+        "Generated project files are not available yet.",
+      );
+    }
+
+    const styled = normalizeProjectStyling(record.outputs.generatedProject);
+    const compiled = await compileTailwindCss(styled.project);
+    if (!compiled.ok) {
+      return sendError(reply, request, 422, ErrorCode.INTERNAL_ERROR, compiled.message);
+    }
+
+    return reply.header("Content-Type", "text/css; charset=utf-8").send(compiled.css);
   });
 }

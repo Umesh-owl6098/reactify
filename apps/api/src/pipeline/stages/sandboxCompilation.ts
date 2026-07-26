@@ -10,7 +10,7 @@ import { ErrorCode, type StageExecutor } from "@reactify/shared";
 import { computeProjectHash } from "../../lib/projectHash.js";
 import type { PipelineState } from "../types.js";
 
-export const sandboxCompilationStage: StageExecutor = async (input) => {
+export const sandboxCompilationStage: StageExecutor = async (input, context) => {
   const state = input as PipelineState;
 
   if (!state.generatedProject) {
@@ -23,6 +23,16 @@ export const sandboxCompilationStage: StageExecutor = async (input) => {
   }
 
   const projectHash = computeProjectHash(state.generatedProject);
+
+  context.logger.info("sandbox_job_created", {
+    generationId: context.generationId,
+    projectHash,
+    fileCount: state.generatedProject.files.length,
+  });
+  context.logger.info("waiting_for_browser_validation", {
+    generationId: context.generationId,
+    projectHash,
+  });
 
   return {
     status: "paused",

@@ -27,7 +27,6 @@ export function useGeneration() {
   const reset = useGenerationStore((state) => state.reset);
   const setActiveJobId = useJobStore((state) => state.setActiveJobId);
   const statusVersionRef = useRef(0);
-  const loadRequestRef = useRef(0);
 
   const beginGeneration = useCallback(
     async (imageId: string): Promise<string> => {
@@ -46,10 +45,12 @@ export function useGeneration() {
 
         if (isTerminalGenerationStatus(initialStatus.status)) {
           setPolling(false);
+          setActiveJobId(null);
         }
         return id;
       } catch (loadError) {
         setError(mapGenerationLoadError(loadError, "Unable to start generation. Upload an image and try again."));
+        setPolling(false);
         throw new Error("Unable to start generation.");
       } finally {
         setLoading(false);
@@ -60,37 +61,40 @@ export function useGeneration() {
 
   const loadGeneration = useCallback(
     async (id: string) => {
-      const requestId = ++loadRequestRef.current;
-      setGenerationId(id);
-      setStatus(null);
-      setError(null);
-      setLoading(true);
-      setPolling(false);
+      const requestId = useGenerationStore.getState().loadRequestId;
 
       try {
         const initialStatus = await fetchGenerationStatus(id);
-        if (requestId !== loadRequestRef.current) {
+        if (requestId !== useGenerationStore.getState().loadRequestId) {
+          return;
+        }
+        if (initialStatus.id !== id) {
           return;
         }
 
         statusVersionRef.current += 1;
         setStatus(initialStatus);
+        setError(null);
         setPolling(!isTerminalGenerationStatus(initialStatus.status));
+        if (isTerminalGenerationStatus(initialStatus.status)) {
+          setActiveJobId(null);
+        }
       } catch (loadError) {
-        if (requestId !== loadRequestRef.current) {
+        if (requestId !== useGenerationStore.getState().loadRequestId) {
           return;
         }
 
         setStatus(null);
         setError(mapGenerationLoadError(loadError, "This generation is unavailable or may have been deleted."));
         setPolling(false);
+        setActiveJobId(null);
       } finally {
-        if (requestId === loadRequestRef.current) {
+        if (requestId === useGenerationStore.getState().loadRequestId) {
           setLoading(false);
         }
       }
     },
-    [setError, setGenerationId, setLoading, setPolling, setStatus],
+    [setActiveJobId, setError, setLoading, setPolling, setStatus],
   );
 
   useEffect(() => {
@@ -129,12 +133,15 @@ export function useGeneration() {
 
         if (isTerminalGenerationStatus(nextStatus.status)) {
           setPolling(false);
+          setActiveJobId(null);
           return;
         }
       } catch (pollError) {
         if (!cancelled) {
           failureCount += 1;
-          setError(mapGenerationLoadError(pollError, "Generation polling failed."));
+          if (failureCount >= 5) {
+            setError(mapGenerationLoadError(pollError, "Generation polling failed."));
+          }
         }
       }
 
@@ -163,7 +170,7 @@ export function useGeneration() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [generationId, isPolling, setError, setPolling, setStatus]);
+  }, [generationId, isPolling, setActiveJobId, setError, setPolling, setStatus]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -193,15 +200,17 @@ export function useGeneration() {
       const nextStatus = await fetchGenerationStatus(generationId);
       statusVersionRef.current += 1;
       setStatus(nextStatus);
+      setError(null);
 
       if (isTerminalGenerationStatus(nextStatus.status)) {
         setPolling(false);
+        setActiveJobId(null);
       }
     } catch (pollError) {
       setError(mapGenerationLoadError(pollError, "Generation polling failed."));
       setPolling(false);
     }
-  }, [generationId, setError, setPolling, setStatus]);
+  }, [generationId, setActiveJobId, setError, setPolling, setStatus]);
 
   return {
     generationId,

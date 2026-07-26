@@ -208,7 +208,8 @@ export async function registerUsageRoutes(
     }
 
     try {
-      const provider = env.AI_PROVIDER === "mock" ? "mock" : "anthropic";
+      const provider = env.AI_PROVIDER === "mock" ? "mock" : env.AI_PROVIDER;
+      const model = env.AI_PROVIDER === "openai" ? env.OPENAI_MODEL : env.ANTHROPIC_MODEL;
       const estimate = usageService.estimateOperation({
         operationType: parsed.data.operationType,
         maxOutputTokens: env.AI_MAX_TOKENS,
@@ -216,7 +217,7 @@ export async function registerUsageRoutes(
         selectedFiles: parsed.data.selectedFiles,
         selectedComponentIds: parsed.data.selectedComponentIds,
         provider,
-        model: env.ANTHROPIC_MODEL,
+        model,
       });
 
       const limits = await usageService.checkLimits({

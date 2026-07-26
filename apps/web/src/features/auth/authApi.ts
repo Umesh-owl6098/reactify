@@ -30,28 +30,72 @@ export class AuthApiError extends Error {
 
 async function parseAuthResponse<T>(response: Response, fallbackMessage: string, parser: (data: unknown) => T): Promise<T> {
   const text = await response.text();
+
   if (!response.ok) {
-    try {
-      const body = JSON.parse(text) as {
-        error?: { code?: string; message?: string; fieldErrors?: Record<string, string> };
-      };
-      throw new AuthApiError(body.error?.message ?? fallbackMessage, body.error?.code, body.error?.fieldErrors);
-    } catch (error) {
-      if (error instanceof AuthApiError) {
-        throw error;
-      }
-      throw new AuthApiError(fallbackMessage);
-    }
+    throw parseHttpAuthError(response.status, text, fallbackMessage);
   }
 
-  return parser(JSON.parse(text));
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new AuthApiError(fallbackMessage);
+  }
+
+  try {
+    return parser(data);
+  } catch (error) {
+    if (error instanceof AuthApiError) {
+      throw error;
+    }
+    throw new AuthApiError(fallbackMessage);
+  }
+}
+
+function parseHttpAuthError(status: number, text: string, fallbackMessage: string): AuthApiError {
+  if (!text.trim()) {
+    return new AuthApiError(fallbackMessage, undefined, undefined);
+  }
+
+  try {
+    const body = JSON.parse(text) as {
+      error?: { code?: string; message?: string; fieldErrors?: Record<string, string> };
+    };
+    return new AuthApiError(body.error?.message ?? fallbackMessage, body.error?.code, body.error?.fieldErrors);
+  } catch {
+    return new AuthApiError(fallbackMessage);
+  }
+}
+
+function parseSessionResponse(data: unknown): SessionResponse {
+  if (typeof data !== "object" || data === null) {
+    throw new AuthApiError("Failed to load session.");
+  }
+
+  const record = data as Record<string, unknown>;
+  if (record.authenticated === false) {
+    return { authenticated: false };
+  }
+
+  const parsed = SessionResponseSchema.safeParse(data);
+  if (!parsed.success || !parsed.data.authenticated || !parsed.data.user) {
+    throw new AuthApiError("Failed to load session.");
+  }
+
+  return parsed.data;
 }
 
 export async function fetchSession(): Promise<SessionResponse> {
-  const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
-    credentials: "include",
-  });
-  return parseAuthResponse(response, "Failed to load session.", (data) => SessionResponseSchema.parse(data));
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      credentials: "include",
+    });
+  } catch {
+    throw new AuthApiError("Failed to load session.");
+  }
+
+  return parseAuthResponse(response, "Failed to load session.", parseSessionResponse);
 }
 
 export async function registerAccount(input: RegisterRequest): Promise<{ user: AuthenticatedUser; sessionExpiresAt?: string }> {

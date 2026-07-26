@@ -1,6 +1,8 @@
+import { logEvent } from "../../lib/structured-log.js";
 import type { PipelineRunner } from "../../pipeline/PipelineRunner.js";
 import type { JobExecutionContext, JobHandlerResult } from "../job-context.js";
 import { DesignAnalysisProgress } from "../job-progress.js";
+import { throwPipelineFailure } from "../pipeline-failure.js";
 import { PermanentJobError } from "../job-errors.js";
 import { ErrorCode } from "@reactify/shared";
 import type { DesignAnalysisJobPayloadSchema } from "@reactify/shared";
@@ -11,6 +13,12 @@ type Payload = z.infer<typeof DesignAnalysisJobPayloadSchema>;
 export function createDesignAnalysisHandler(runner: PipelineRunner) {
   return async (payload: unknown, context: JobExecutionContext): Promise<JobHandlerResult> => {
     const data = payload as Payload;
+    logEvent("design_analysis_handler_started", {
+      jobId: context.jobId,
+      generationId: data.generationId,
+      imageId: data.imageId,
+      attemptNumber: context.attemptNumber,
+    });
     await context.assertCanMutate();
     await context.progress.report(
       DesignAnalysisProgress.VALIDATING.progress,
@@ -42,13 +50,26 @@ export function createDesignAnalysisHandler(runner: PipelineRunner) {
       ownsLock: () => context.ownsLock(),
     });
 
+    logEvent("design_analysis_handler_segment_finished", {
+      jobId: context.jobId,
+      generationId: data.generationId,
+      outcome: result.outcome,
+      ...(result.outcome === "failed" ? { failureCode: result.code, failureMessage: result.message } : {}),
+    });
+
     if (result.outcome === "cancelled") {
       throw new PermanentJobError(ErrorCode.JOB_CANCELLED, "Job was cancelled.");
     }
 
     if (result.outcome === "failed") {
-      throw new PermanentJobError(result.code, result.message);
+      throwPipelineFailure(result.code, result.message, result.providerMetadata);
     }
+
+    logEvent("design_analysis_completed", {
+      jobId: context.jobId,
+      generationId: data.generationId,
+      imageId: data.imageId,
+    });
 
     await context.progress.report(
       DesignAnalysisProgress.VALIDATING_RESPONSE.progress,

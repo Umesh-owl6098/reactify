@@ -16,6 +16,7 @@ export type LoadPromptFn = (
     | "design-analysis"
     | "generation-plan"
     | "react-project-generation"
+    | "react-project-generation-repair"
     | "generation"
     | "repair"
     | "project-repair"
@@ -42,6 +43,13 @@ export interface StageResult<T = unknown> {
   output?: T;
   errorCode?: string;
   errorMessage?: string;
+  providerMetadata?: {
+    httpStatus?: number;
+    providerErrorType?: string;
+    providerErrorCode?: string;
+    providerRequestId?: string;
+    providerMessage?: string;
+  };
   durationMs: number;
 }
 
@@ -64,7 +72,6 @@ export interface PipelineContext {
     maxPatchFileBytes: number;
     maxPatchTotalBytes: number;
   };
-  failStage?: PipelineStageName;
 }
 
 export type StageExecutor = (

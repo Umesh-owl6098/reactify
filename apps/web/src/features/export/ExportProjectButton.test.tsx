@@ -156,6 +156,44 @@ describe("ExportProjectPanel", () => {
     });
   });
 
+  it("shows download errors from export history without unhandled rejections", async () => {
+    vi.mocked(fetchExportHistory).mockResolvedValue({
+      generationId: baseStatus.id,
+      exports: [
+        {
+          exportId: "880e8400-e29b-41d4-a716-446655440000",
+          status: "ready",
+          filename: "mock-landing-page-v1.zip",
+          projectName: "mock-landing-page",
+          generationId: baseStatus.id,
+          versionId: baseStatus.projectHash!,
+          versionNumber: 1,
+          projectHash: baseStatus.projectHash!,
+          fileCount: 8,
+          totalSizeBytes: 1200,
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    vi.mocked(downloadProjectExport).mockRejectedValue(
+      new GenerationApiRequestError("Export download is not available.", "GENERATION_NOT_FOUND"),
+    );
+
+    render(<ExportProjectPanel status={baseStatus} onRefreshStatus={() => undefined} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Download mock-landing-page-v1.zip again/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Download mock-landing-page-v1.zip again/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Download failed: Export download is not available\./i)).toBeInTheDocument();
+    });
+    expect(downloadProjectExport).toHaveBeenCalledTimes(1);
+  });
+
   it("prevents duplicate submission while submitting", async () => {
     vi.mocked(createProjectExport).mockImplementation(
       () =>

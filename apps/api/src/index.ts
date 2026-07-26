@@ -1,10 +1,28 @@
+import { loadLocalEnv } from "./lib/load-local-env.js";
 import { validateEnv } from "./env.js";
 import { buildServer } from "./server.js";
 import { connectDatabase, getPrismaClient, verifyDatabaseAvailability } from "./persistence/client.js";
 import { verifySchemaReadiness } from "./persistence/schema-readiness.js";
 import { logDatabaseIdentity } from "./lib/database-identity.js";
+import { registerProcessLifecycle } from "./lib/process-lifecycle.js";
+import { listenWithDevRetry } from "./lib/port-utils.js";
+import type { FastifyInstance } from "fastify";
+
+const API_HOST = "127.0.0.1";
+let app: FastifyInstance | null = null;
+
+registerProcessLifecycle({
+  role: "api",
+  onShutdown: async () => {
+    if (app) {
+      await app.close();
+      app = null;
+    }
+  },
+});
 
 async function main() {
+  loadLocalEnv();
   const env = validateEnv();
   const prisma = getPrismaClient(env);
 
@@ -27,20 +45,25 @@ async function main() {
       message: schema.message,
       missingTables: schema.missingTables,
     });
-    if (env.NODE_ENV === "production") {
-      process.exit(1);
-    }
+    process.exit(1);
   }
 
   await logDatabaseIdentity(prisma, env.DATABASE_URL, "api");
 
-  const { app } = await buildServer(env);
+  const built = await buildServer(env);
+  app = built.app;
 
   try {
-    await app.listen({ port: env.PORT, host: "0.0.0.0" });
+    await listenWithDevRetry(
+      async () => {
+        await app!.listen({ port: env.PORT, host: API_HOST });
+      },
+      { port: env.PORT, host: API_HOST },
+    );
     console.info("Reactify API ready");
     console.info({
       event: "api_started",
+      host: API_HOST,
       port: env.PORT,
       aiProvider: env.AI_PROVIDER,
       jobInlineExecution: env.JOB_INLINE_EXECUTION,

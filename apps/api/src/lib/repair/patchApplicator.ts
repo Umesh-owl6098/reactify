@@ -1,6 +1,7 @@
 import type { GeneratedProjectV1, ProjectPatchV1 } from "@reactify/generation-contracts";
 import { GeneratedProjectV1Schema } from "@reactify/generation-contracts";
 import { computeProjectHash } from "../projectHash.js";
+import { normalizeProjectStyling } from "../styling/normalizeProjectStyling.js";
 import { normalizeProjectPath } from "../validation/filePathValidator.js";
 import { validateRequiredProjectFiles } from "../validation/requiredFilesValidator.js";
 import { runStaticProjectValidation } from "../validation/staticProjectValidator.js";
@@ -58,7 +59,7 @@ export function applyProjectPatch(
     }
   }
 
-  const nextProject: GeneratedProjectV1 = {
+  const patchedProject: GeneratedProjectV1 = {
     ...original,
     dependencies,
     devDependencies,
@@ -66,11 +67,11 @@ export function applyProjectPatch(
     warnings: [...original.warnings, patch.repairSummary],
   };
 
-  const packageFile = nextProject.files.find((file) => file.path === "package.json");
+  const packageFile = patchedProject.files.find((file) => file.path === "package.json");
   if (packageFile) {
     packageFile.content = JSON.stringify(
       {
-        name: JSON.parse(packageFile.content).name ?? nextProject.projectName,
+        name: JSON.parse(packageFile.content).name ?? patchedProject.projectName,
         private: true,
         type: "module",
         scripts: JSON.parse(packageFile.content).scripts ?? {},
@@ -81,6 +82,8 @@ export function applyProjectPatch(
       2,
     );
   }
+
+  const nextProject = normalizeProjectStyling(patchedProject).project;
 
   const schema = GeneratedProjectV1Schema.safeParse(nextProject);
   if (!schema.success) {

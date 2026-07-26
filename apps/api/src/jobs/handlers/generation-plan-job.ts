@@ -1,5 +1,7 @@
+import { logEvent } from "../../lib/structured-log.js";
 import type { PipelineRunner } from "../../pipeline/PipelineRunner.js";
 import type { JobExecutionContext, JobHandlerResult } from "../job-context.js";
+import { throwPipelineFailure } from "../pipeline-failure.js";
 import { PermanentJobError } from "../job-errors.js";
 import { ErrorCode } from "@reactify/shared";
 import type { GenerationPlanJobPayloadSchema } from "@reactify/shared";
@@ -25,10 +27,19 @@ export function createGenerationPlanHandler(runner: PipelineRunner) {
     }
 
     if (result.outcome === "failed") {
-      throw new PermanentJobError(result.code, result.message);
+      throwPipelineFailure(result.code, result.message, result.providerMetadata);
     }
 
     if (result.outcome === "paused_plan_review") {
+      logEvent("generation_plan_created", {
+        jobId: context.jobId,
+        generationId: data.generationId,
+      });
+      logEvent("generation_waiting_for_client_review", {
+        jobId: context.jobId,
+        generationId: data.generationId,
+        stage: "generation_plan_review",
+      });
       await context.progress.report(100, "Awaiting plan confirmation");
       return {
         waitingForClient: true,

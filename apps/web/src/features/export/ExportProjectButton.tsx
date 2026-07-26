@@ -45,6 +45,8 @@ export function ExportProjectPanel({ status, onRefreshStatus }: ExportProjectBut
 
       <ExportHistory
         history={exportState.history}
+        isDownloading={exportState.isDownloading}
+        downloadError={exportState.downloadError}
         onDownloadAgain={(exportId, filename) => void exportState.downloadAgain(exportId, filename)}
       />
 

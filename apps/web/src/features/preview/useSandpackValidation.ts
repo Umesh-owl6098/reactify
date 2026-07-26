@@ -2,6 +2,7 @@ import type { Diagnostic, SandboxValidationRequest } from "@reactify/generation-
 import { submitSandboxValidation } from "../../lib/generation-api";
 import {
   dedupeDiagnostics,
+  normalizeCompilationTimeoutError,
   normalizeReactRenderError,
   normalizeRuntimeConsoleEvent,
   normalizeSandpackProblem,
@@ -10,7 +11,12 @@ import {
 } from "./sandpackDiagnostics";
 
 export const RUNTIME_VALIDATION_TIMEOUT_MS = 5000;
-export const COMPILATION_TIMEOUT_MS = 30000;
+/** @deprecated Use COMPILATION_HARD_TIMEOUT_MS via waitForSandpackCompilation. */
+export const COMPILATION_TIMEOUT_MS = 120000;
+export const COMPILATION_HARD_TIMEOUT_MS = 120000;
+export const COMPILATION_POLL_INTERVAL_MS = 100;
+
+const COMPILATION_READY_STATUSES = new Set(["idle", "running"]);
 
 export interface RuntimeValidationResult {
   success: boolean;
@@ -39,6 +45,109 @@ export function buildSandboxValidationRequest(input: {
     runtime: input.runtime,
     validatedAt: new Date().toISOString(),
   };
+}
+
+export function isSandpackCompilationReady(status: string, hasError: boolean): boolean {
+  return !hasError && COMPILATION_READY_STATUSES.has(status);
+}
+
+export async function waitForSandpackCompilation(input: {
+  readStatus: () => string;
+  readHasError: () => boolean;
+  readError: () => SandpackProblem | null;
+  isCancelled?: () => boolean;
+  hardTimeoutMs?: number;
+  pollIntervalMs?: number;
+}): Promise<{
+  ready: boolean;
+  timedOut: boolean;
+  durationMs: number;
+  finalStatus: string;
+  error: SandpackProblem | null;
+}> {
+  const startedAt = Date.now();
+  const hardTimeoutMs = input.hardTimeoutMs ?? COMPILATION_HARD_TIMEOUT_MS;
+  const pollIntervalMs = input.pollIntervalMs ?? COMPILATION_POLL_INTERVAL_MS;
+  const deadline = startedAt + hardTimeoutMs;
+
+  while (!input.isCancelled?.() && Date.now() < deadline) {
+    const error = input.readError();
+    if (error) {
+      return {
+        ready: false,
+        timedOut: false,
+        durationMs: Date.now() - startedAt,
+        finalStatus: input.readStatus(),
+        error,
+      };
+    }
+
+    const status = input.readStatus();
+    if (isSandpackCompilationReady(status, false)) {
+      return {
+        ready: true,
+        timedOut: false,
+        durationMs: Date.now() - startedAt,
+        finalStatus: status,
+        error: null,
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return {
+    ready: false,
+    timedOut: true,
+    durationMs: Date.now() - startedAt,
+    finalStatus: input.readStatus(),
+    error: input.readHasError() ? input.readError() : null,
+  };
+}
+
+export function buildCompilationValidationResult(input: {
+  ready: boolean;
+  timedOut: boolean;
+  durationMs: number;
+  finalStatus: string;
+  error: SandpackProblem | null;
+  hardTimeoutMs?: number;
+}): CompilationValidationResult {
+  const hardTimeoutMs = input.hardTimeoutMs ?? COMPILATION_HARD_TIMEOUT_MS;
+
+  if (input.ready) {
+    return {
+      success: true,
+      durationMs: input.durationMs,
+      errors: [],
+      warnings: [],
+    };
+  }
+
+  if (input.timedOut) {
+    return {
+      success: false,
+      durationMs: input.durationMs,
+      errors: [normalizeCompilationTimeoutError(input.finalStatus, hardTimeoutMs)],
+      warnings: [],
+    };
+  }
+
+  const problems: SandpackProblem[] = [];
+  if (input.error) {
+    problems.push(input.error);
+  } else {
+    problems.push({
+      message: `Sandpack compilation did not become ready (last status: ${input.finalStatus}).`,
+      severity: "error",
+      source: "sandpack",
+      code: "SANDBOX_COMPILATION_FAILED",
+    });
+  }
+
+  const compilation = normalizeCompilationProblems(problems);
+  compilation.durationMs = input.durationMs;
+  return compilation;
 }
 
 export function normalizeCompilationProblems(problems: SandpackProblem[]): CompilationValidationResult {

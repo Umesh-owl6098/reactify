@@ -7,7 +7,7 @@ import {
   RepairAttemptRecordSchema,
   VisualComparisonResultSchema,
 } from "@reactify/generation-contracts";
-import type { GenerationUserStatus } from "@reactify/generation-contracts";
+import type { GenerationUserStatus, GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { InternalExportRecord } from "../../lib/export/ExportService.js";
 import type { InternalEditRecord } from "../../lib/edit/EditService.js";
 import type { InternalVisualComparisonRecord } from "../../lib/visual-comparison/VisualComparisonService.js";
@@ -15,6 +15,7 @@ import type { GenerationRecord, ProjectVersionRecord } from "../../pipeline/type
 import type { InternalRepairAttemptRecord } from "../../pipeline/types.js";
 import { PersistenceError } from "../errors.js";
 import { ErrorCode } from "@reactify/shared";
+import { logEvent } from "../../lib/structured-log.js";
 
 type LoadedGeneration = Prisma.GenerationGetPayload<{
   include: {
@@ -102,6 +103,7 @@ function mapEdit(row: LoadedGeneration["edits"][number]): InternalEditRecord {
     changedFiles: Array.isArray(row.changedFiles) ? (row.changedFiles as string[]) : [],
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
+    updatedAt: (row.completedAt ?? row.createdAt).toISOString(),
     failureReason: row.failureReason ?? undefined,
     clarificationQuestion: row.clarificationQuestion ?? undefined,
     confirmationRequired: row.confirmationRequired,
@@ -150,6 +152,11 @@ function mapComparison(row: LoadedGeneration["visualComparisons"][number]): Inte
 }
 
 function mapExport(row: LoadedGeneration["exports"][number]): InternalExportRecord {
+  const options = (row.options ?? {}) as {
+    includeMetadata?: boolean;
+    includeGenerationSummary?: boolean;
+  };
+
   return {
     exportId: row.exportId,
     status: row.status as InternalExportRecord["status"],
@@ -165,7 +172,28 @@ function mapExport(row: LoadedGeneration["exports"][number]): InternalExportReco
     completedAt: row.completedAt?.toISOString(),
     failureReason: row.failureReason ?? undefined,
     idempotencyFingerprint: row.idempotencyFingerprint ?? undefined,
+    artifactReference: row.artifactReference ?? undefined,
+    includeMetadata: options.includeMetadata ?? true,
+    includeGenerationSummary: options.includeGenerationSummary ?? false,
   };
+}
+
+function resolveGeneratedProject(row: LoadedGeneration): GeneratedProjectV1 | null {
+  const activeVersion = row.versions.find((version) => version.versionId === row.activeVersionId);
+  if (activeVersion) {
+    return parseJson(GeneratedProjectV1Schema, activeVersion.projectSnapshot, "active project version");
+  }
+
+  const pipelineState = row.pipelineState as { generatedProject?: unknown } | null;
+  if (pipelineState?.generatedProject) {
+    logEvent("hydration_pipeline_state_project_fallback", {
+      generationId: row.id,
+      activeVersionId: row.activeVersionId,
+    });
+    return parseJson(GeneratedProjectV1Schema, pipelineState.generatedProject, "pipeline state generated project");
+  }
+
+  return null;
 }
 
 export function mapLoadedGenerationToRecord(row: LoadedGeneration): GenerationRecord {
@@ -188,10 +216,7 @@ export function mapLoadedGenerationToRecord(row: LoadedGeneration): GenerationRe
     ? parseJson(GenerationPlanV1Schema, row.outputsGenerationPlan, "generation plan")
     : null;
 
-  const activeVersion = row.versions.find((version) => version.versionId === row.activeVersionId);
-  const generatedProject = activeVersion
-    ? parseJson(GeneratedProjectV1Schema, activeVersion.projectSnapshot, "active project version")
-    : null;
+  const generatedProject = resolveGeneratedProject(row);
 
   return {
     id: row.id,
@@ -271,7 +296,7 @@ export function mapRecordToGenerationData(record: GenerationRecord): Prisma.Gene
     latestProjectHash: record.projectHash,
     stateVersion: record.stateVersion ?? 1,
     cancelled: record.cancelled,
-    failStage: record.failStage,
+    failStage: record.failStage ?? null,
     failureCode: record.errors.at(-1)?.code,
     failureMessage: record.errors.at(-1)?.message,
     repairRequired: record.repairRequired,

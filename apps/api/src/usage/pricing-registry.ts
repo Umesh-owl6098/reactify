@@ -1,6 +1,7 @@
 import { ErrorCode } from "@reactify/shared";
 import { usdToMicros } from "@reactify/shared";
 import type { Env } from "../env.js";
+import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import type { ModelPricing } from "./cost-calculator.js";
 import { CostCalculatorError } from "./cost-calculator.js";
 
@@ -91,8 +92,8 @@ export function parsePricingFromEnv(env: NodeJS.ProcessEnv): PricingRegistryOpti
 }
 
 export function createPricingRegistry(env: Env, options: PricingRegistryOptions): PricingRegistry {
-  const defaultProvider = env.AI_PROVIDER === "mock" ? "mock" : "anthropic";
-  const defaultModel = env.ANTHROPIC_MODEL;
+  const defaultProvider = resolveUsageProviderName(env);
+  const defaultModel = resolveActiveModel(env);
 
   if (!options.models.has(pricingKey(defaultProvider, defaultModel))) {
     if (env.NODE_ENV === "test" || env.AI_PROVIDER === "mock") {
@@ -100,9 +101,13 @@ export function createPricingRegistry(env: Env, options: PricingRegistryOptions)
         inputPerMillionMicrosUsd: usdToMicros(3),
         outputPerMillionMicrosUsd: usdToMicros(15),
       });
-      options.models.set(pricingKey("anthropic", defaultModel), {
+      options.models.set(pricingKey("anthropic", env.ANTHROPIC_MODEL), {
         inputPerMillionMicrosUsd: usdToMicros(3),
         outputPerMillionMicrosUsd: usdToMicros(15),
+      });
+      options.models.set(pricingKey("openai", env.OPENAI_MODEL), {
+        inputPerMillionMicrosUsd: usdToMicros(2.5),
+        outputPerMillionMicrosUsd: usdToMicros(10),
       });
     }
   }
@@ -141,10 +146,11 @@ export function createPricingRegistry(env: Env, options: PricingRegistryOptions)
 }
 
 export function validatePricingForEnabledProvider(env: Env, registry: PricingRegistry): void {
-  const provider = env.AI_PROVIDER === "mock" ? "mock" : "anthropic";
-  if (!registry.hasModelPricing(provider, env.ANTHROPIC_MODEL)) {
+  const provider = resolveUsageProviderName(env);
+  const model = resolveActiveModel(env);
+  if (!registry.hasModelPricing(provider, model)) {
     console.error(
-      `AI pricing is not configured for enabled model ${provider}/${env.ANTHROPIC_MODEL}. ` +
+      `AI pricing is not configured for enabled model ${provider}/${model}. ` +
         "Set AI_PRICING_* environment variables or AI_PRICING_ALLOW_FALLBACK=true with fallback rates.",
     );
     if (env.NODE_ENV !== "test") {

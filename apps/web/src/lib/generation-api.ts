@@ -25,6 +25,7 @@ import {
   EditClarificationRequestSchema,
   EditConfirmationRequestSchema,
   VisualComparisonHistoryListResponseSchema,
+  VisualComparisonDetailResponseSchema,
   VisualComparisonRequestSchema,
   VisualComparisonResultSchema,
   VisualCorrectionRequestSchema,
@@ -126,6 +127,18 @@ export function mapGenerationLoadError(error: unknown, fallbackMessage: string):
   return fallbackMessage;
 }
 
+export function formatDownloadErrorMessage(error: unknown): string {
+  if (error instanceof GenerationApiRequestError) {
+    return `Download failed: ${error.message}`;
+  }
+
+  if (error instanceof Error) {
+    return `Download failed: ${error.message}`;
+  }
+
+  return "Download failed.";
+}
+
 export function formatExportErrorMessage(error: unknown): string {
   if (error instanceof GenerationApiRequestError) {
     return error.code ? `Export failed: ${error.message}` : error.message;
@@ -158,6 +171,13 @@ export async function submitSandboxValidation(
 ): Promise<string> {
   const payload = SandboxValidationRequestSchema.parse(report);
 
+  console.info("[sandpack] validation_post_started", {
+    generationId,
+    projectHash: payload.projectHash,
+    compilationSuccess: payload.compilation.success,
+    runtimeSuccess: payload.runtime.success,
+  });
+
   const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/sandbox-validation`, {
     method: "POST",
     headers: {
@@ -167,10 +187,22 @@ export async function submitSandboxValidation(
   });
 
   if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    console.info("[sandpack] validation_post_finished", {
+      generationId,
+      ok: false,
+      status: response.status,
+      body: errorText.slice(0, 500),
+    });
     throw new Error("Failed to submit sandbox validation report.");
   }
 
   const body = SandboxValidationResponseSchema.parse(await response.json());
+  console.info("[sandpack] validation_post_finished", {
+    generationId,
+    ok: true,
+    status: body.status,
+  });
   return body.status;
 }
 
@@ -330,6 +362,16 @@ export async function fetchGeneratedFileContent(generationId: string, path: stri
   return GeneratedFileContentResponseSchema.parse(await response.json());
 }
 
+export async function fetchPreviewStylesCss(generationId: string): Promise<string> {
+  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/preview-styles.css`);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch compiled preview stylesheet.");
+  }
+
+  return response.text();
+}
+
 export function shouldShowGeneratedProject(status: GenerationStatusResponse): boolean {
   return Boolean(status.outputs.generatedProject) &&
     ["Generating", "Validating", "Compiling", "Repairing", "RepairRequired", "RepairFailed", "Ready", "Failed"].includes(status.status);
@@ -375,7 +417,33 @@ export async function createProjectExport(generationId: string, request: ExportR
     throw parseGenerationApiError(await response.text(), "Failed to create project export.");
   }
 
-  return ExportSummarySchema.parse(await response.json());
+  const body: unknown = await response.json();
+  if (body && typeof body === "object" && "export" in body) {
+    const wrapped = body as { export: unknown; job?: unknown };
+    JobAcceptedResponseSchema.parse(wrapped.job);
+    return waitForExportReady(generationId, ExportSummarySchema.parse(wrapped.export).exportId);
+  }
+
+  return ExportSummarySchema.parse(body);
+}
+
+async function waitForExportReady(
+  generationId: string,
+  exportId: string,
+  timeoutMs = 120_000,
+): Promise<ReturnType<typeof ExportSummarySchema.parse>> {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const detail = await fetchExportDetail(generationId, exportId);
+    if (detail.export.status === "ready" || detail.export.status === "failed") {
+      return detail.export;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+  }
+
+  throw new Error("Export preparation timed out.");
 }
 
 export async function fetchExportHistory(generationId: string) {
@@ -519,6 +587,16 @@ export async function fetchVisualComparisonHistory(generationId: string) {
     throw new Error("Failed to fetch visual comparison history.");
   }
   return VisualComparisonHistoryListResponseSchema.parse(await response.json());
+}
+
+export async function fetchVisualComparison(generationId: string, comparisonId: string) {
+  const response = await apiFetch(
+    `${API_BASE}/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}`,
+  );
+  if (!response.ok) {
+    throw new Error("Failed to fetch visual comparison.");
+  }
+  return VisualComparisonDetailResponseSchema.parse(await response.json()).comparison;
 }
 
 export async function applyVisualCorrection(

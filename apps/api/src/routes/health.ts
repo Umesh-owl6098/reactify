@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { APP_VERSION } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { resolveAppPaths } from "../config/paths.js";
+import { isAIProviderConfigured } from "../providers/ai-provider-config.js";
 import { isWorkerPresenceFresh, readWorkerPresence } from "../jobs/worker-presence.js";
 import { createJobRegistry } from "../jobs/job-registry.js";
 import { verifySchemaReadiness } from "../persistence/schema-readiness.js";
@@ -64,9 +65,7 @@ export async function registerHealthRoutes(app: FastifyInstance, deps?: HealthRo
       Math.max(deps.env.JOB_WORKER_POLL_INTERVAL_MS * 3, 15_000),
     );
 
-    const configurationOk =
-      deps.env.AI_PROVIDER === "mock" ||
-      (deps.env.AI_PROVIDER === "anthropic" && Boolean(deps.env.ANTHROPIC_API_KEY));
+    const configurationOk = isAIProviderConfigured(deps.env);
 
     const workerCheck: ReadyResponse["checks"]["worker"] = deps.env.JOB_INLINE_EXECUTION
       ? "not_required"

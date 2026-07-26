@@ -1,11 +1,31 @@
 import type { AllowedImageMimeType } from "./upload.js";
 
+export interface AbortSignalLike {
+  readonly aborted: boolean;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+}
+
+export interface AIJsonSchemaResponseFormat {
+  type: "json_schema";
+  name: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+}
+
+export interface AIJsonObjectResponseFormat {
+  type: "json_object";
+}
+
+export type AIResponseFormat = AIJsonObjectResponseFormat | AIJsonSchemaResponseFormat;
+
 export interface AIInvocationOptions {
   promptVersion: string;
   model: string;
   temperature: number;
   maxTokens?: number;
   timeoutMs: number;
+  signal?: AbortSignalLike;
+  responseFormat?: AIResponseFormat;
 }
 
 export interface AIImageInput {

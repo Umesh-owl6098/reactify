@@ -4,25 +4,26 @@ import { ErrorCode } from "@reactify/shared";
 import { AuthApiError, signInAccount } from "./authApi";
 import { AuthField, AuthForm } from "./AuthForm";
 import { AuthLayout } from "./AuthLayout";
-import { useAuthStore } from "./authStore";
+import { resolveRedirectPath } from "./redirect.js";
+import { useSession } from "./useSession.js";
 
 export function SignInPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const setUser = useAuthStore((state) => state.setUser);
+  const { completeSignIn } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
+  const redirectTo = resolveRedirectPath(location.state);
 
   async function handleSubmit() {
     setErrorMessage(null);
     setIsSubmitting(true);
     try {
       const result = await signInAccount({ email, password });
-      setUser(result.user, result.sessionExpiresAt ?? null);
+      completeSignIn(result.user, result.sessionExpiresAt ?? null);
       navigate(redirectTo, { replace: true });
     } catch (error) {
       if (error instanceof AuthApiError && error.code === ErrorCode.INVALID_CREDENTIALS) {

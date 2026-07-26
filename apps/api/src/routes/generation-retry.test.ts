@@ -59,6 +59,45 @@ describe("recoverFailedGeneration", () => {
     expect(store.get(record.id)?.errors.some((entry) => entry.code === ErrorCode.JOB_NOT_FOUND)).toBe(true);
   });
 
+  it("retries legacy DATABASE_UNAVAILABLE failures into Analyzing", async () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    store.markFailed(record.id, "design_analysis", ErrorCode.DATABASE_UNAVAILABLE, "legacy failure", {
+      manualRetryAllowed: true,
+    });
+
+    const enqueue = vi.fn().mockResolvedValue({
+      job: {
+        jobId: "22222222-2222-4222-8222-222222222222",
+        generationId: record.id,
+        jobType: "design_analysis",
+        status: "queued",
+        createdAt: new Date().toISOString(),
+        statusUrl: "/api/v1/jobs/22222222-2222-4222-8222-222222222222",
+      },
+      created: true,
+    });
+
+    const result = await recoverFailedGeneration({
+      record: store.get(record.id)!,
+      store,
+      jobService: {
+        repository: {
+          findActiveJobByType: vi.fn().mockResolvedValue(null),
+        },
+        enqueue,
+      } as unknown as JobService,
+      imageStorage: {
+        get: vi.fn().mockResolvedValue({ imageId: record.imageId }),
+      } as never,
+      ownerId: "owner",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(store.get(record.id)?.status).toBe("Analyzing");
+  });
+
   it("does not create duplicate jobs when an active job already exists", async () => {
     const store = createStore();
     const record = store.create({ ownerId: "owner", imageId: "image" });

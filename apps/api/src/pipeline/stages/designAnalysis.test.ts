@@ -8,7 +8,7 @@ import {
   createDesignAnalysisFixtureJson,
   designAnalysisFixture,
 } from "@reactify/test-utils";
-import { AIProviderError } from "../../providers/AnthropicProvider.js";
+import { AIProviderError } from "../../providers/provider-errors.js";
 import { ImageStorage } from "../../lib/imageStorage.js";
 import { createImagePreparationStage } from "./imagePreparation.js";
 import { designAnalysisStage } from "./designAnalysis.js";
@@ -158,6 +158,19 @@ describe("designAnalysisStage", () => {
 
     expect(result.status).toBe("failed");
     expect(result.errorCode).toBe(ErrorCode.AI_TIMEOUT);
+  });
+
+  it("maps provider request errors to AI_REQUEST_INVALID", async () => {
+    const provider = new MockAIProvider({
+      error: new AIProviderError("OpenAI request was invalid.", ErrorCode.AI_REQUEST_INVALID),
+    });
+    const context = createContext(provider);
+    const prepared = await createImagePreparationStage(imageStorage)({ imageId }, context);
+    const result = await designAnalysisStage(prepared.output, context);
+
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe(ErrorCode.AI_REQUEST_INVALID);
+    expect(result.errorMessage).toBe("OpenAI request was invalid.");
   });
 
   it("maps unexpected provider failures to AI_ERROR", async () => {

@@ -91,6 +91,11 @@ describe("PipelineRunner", () => {
       };
     });
 
+    const pausedRecord = store.get(generationId);
+    expect(pausedRecord?.activeVersionId).toBe(projectHash);
+    expect(pausedRecord?.versions).toHaveLength(1);
+    expect(pausedRecord?.outputs.generatedProject).not.toBeNull();
+
     const submitResult = await runner.submitSandboxValidation(
       generationId,
       createSuccessfulSandboxValidationReport({ generationId, projectHash }),
@@ -116,6 +121,31 @@ describe("PipelineRunner", () => {
     expect(record?.outputs.generatedProject).not.toBeNull();
     expect(record?.sandboxValidation?.compilation.success).toBe(true);
     expect(record?.sandboxValidation?.runtime.success).toBe(true);
+  });
+
+  it("sets Ready when runSegment stops after preview_ready", async () => {
+    const generationId = store.create({ imageId }).id;
+    await runner.run(generationId);
+
+    expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
+    await runner.resume(generationId);
+
+    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
+      const record = store.get(generationId);
+      return {
+        awaitingSandboxValidation: record?.awaitingSandboxValidation,
+        projectHash: record?.projectHash,
+      };
+    });
+
+    await runner.submitSandboxValidation(
+      generationId,
+      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
+    );
+
+    const result = await runner.runSegment(generationId, "automatic_repair", { stopAfter: "preview_ready" });
+    expect(result.outcome).toBe("completed");
+    expect(store.get(generationId)?.status).toBe("Ready");
   });
 
   it("does not start duplicate resumes on repeated confirmation", async () => {
@@ -152,13 +182,36 @@ describe("PipelineRunner", () => {
     expect(secondConfirm.ok).toBe(false);
   });
 
-  it("marks the pipeline failed when a stage fails", async () => {
-    const generationId = store.create({ imageId, failStage: "design_analysis" }).id;
-    await runner.run(generationId);
+  it("marks the pipeline failed when mock failure stage is configured", async () => {
+    const failingRunner = new PipelineRunner(
+      createDefaultRegistry(createStageExecutors(imageStorage)),
+      store,
+      imageStorage,
+      DEFAULT_FEATURE_FLAGS,
+      {
+        ...createRunnerServices(),
+        mockFailureStage: "design_analysis",
+      },
+    );
+    const generationId = store.create({ imageId }).id;
+    await failingRunner.run(generationId);
 
     const record = store.get(generationId);
     expect(record?.status).toBe("Failed");
     expect(record?.errors[0]?.stage).toBe("design_analysis");
+    expect(record?.errors[0]?.code).toBe("MOCK_FAILURE_INJECTED");
+  });
+
+  it("does not fail design analysis when generation failStage metadata is set", async () => {
+    const generationId = store.create({ imageId }).id;
+    store.markFailed(generationId, "design_analysis", "JOB_ENQUEUE_FAILED", "queue unavailable", {
+      manualRetryAllowed: true,
+    });
+    store.recoverFromWorkerFailure(generationId, "design_analysis");
+
+    const result = await runner.runSegment(generationId, undefined, { stopAfter: "design_analysis" });
+    expect(result.outcome).toBe("completed");
+    expect(store.get(generationId)?.outputs.designAnalysis).not.toBeNull();
   });
 
   it("marks the pipeline cancelled when cancelled mid-run", async () => {

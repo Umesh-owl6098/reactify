@@ -125,6 +125,8 @@ export const VisualComparisonBlockedReasonSchema = z.enum([
   "source_image_not_found",
   "active_version_not_found",
   "preview_not_ready",
+  "awaiting_plan_confirmation",
+  "awaiting_sandbox_validation",
   "generation_in_progress",
   "generation_cancelled",
   "project_not_validated",

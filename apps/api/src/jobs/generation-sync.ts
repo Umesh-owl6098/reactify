@@ -33,7 +33,35 @@ export function syncGenerationForJobStart(record: GenerationRecord, jobType: Bac
   }
 }
 
-export function syncGenerationForJobFailure(record: GenerationRecord, failureCode?: string | null): void {
+const NON_GENERATION_FAILURE_JOB_TYPES = new Set<BackgroundJobType>([
+  "export_preparation",
+  "edit_intent_analysis",
+  "project_edit_generation",
+  "visual_correction",
+]);
+
+export function syncGenerationForJobFailure(
+  record: GenerationRecord,
+  failureCode?: string | null,
+  jobType?: BackgroundJobType,
+): void {
+  if (jobType === "edit_intent_analysis" || jobType === "project_edit_generation") {
+    const edit = record.edits.find((entry) => entry.editId === record.activeEditId);
+    if (edit && !["completed", "failed", "cancelled"].includes(edit.status)) {
+      edit.status = "failed";
+      edit.failureReason = failureCode ?? "Edit job failed.";
+      edit.completedAt = new Date().toISOString();
+    }
+    record.editInProgress = false;
+    record.activeEditId = null;
+    restoreGenerationReadyAfterEdit(record);
+    record.updatedAt = new Date().toISOString();
+    return;
+  }
+
+  if (jobType && NON_GENERATION_FAILURE_JOB_TYPES.has(jobType)) {
+    return;
+  }
   if (record.cancelled) {
     record.status = "Cancelled";
     return;
@@ -49,6 +77,19 @@ export function syncGenerationForJobFailure(record: GenerationRecord, failureCod
   }
 }
 
+/** Restore Ready after edit-side jobs pause for client input or finish without mutating the project. */
+export function restoreGenerationReadyAfterEdit(record: GenerationRecord): void {
+  if (
+    record.status === "Generating" &&
+    record.outputs.generatedProject &&
+    !record.awaitingSandboxValidation &&
+    !record.editInProgress
+  ) {
+    record.status = "Ready";
+    record.activeStage = null;
+  }
+}
+
 export function syncGenerationForJobCompletion(
   record: GenerationRecord,
   jobType: BackgroundJobType,
@@ -58,6 +99,9 @@ export function syncGenerationForJobCompletion(
     if (jobType === "generation_plan_creation" || jobType === "react_project_generation") {
       // Generation store handles pause flags during pipeline execution.
       return;
+    }
+    if (jobType === "edit_intent_analysis" || jobType === "project_edit_generation") {
+      restoreGenerationReadyAfterEdit(record);
     }
     return;
   }

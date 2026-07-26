@@ -210,4 +210,29 @@ describe("exportEligibility", () => {
     expect(result.ok).toBe(true);
     expect(record.exportInProgress).toBe(false);
   });
+
+  it("allows the active export preparation job to proceed while export is in progress", () => {
+    const exportId = "880e8400-e29b-41d4-a716-446655440000";
+    const record = createReadyRecord({
+      exportInProgress: true,
+      exports: [
+        {
+          exportId,
+          status: "preparing",
+          filename: "mocklandingpage-v1.zip",
+          projectName: "mocklandingpage",
+          generationId: "550e8400-e29b-41d4-a716-446655440000",
+          versionId: computeProjectHash(generatedProjectFixture),
+          versionNumber: 1,
+          projectHash: computeProjectHash(generatedProjectFixture),
+          fileCount: 0,
+          totalSizeBytes: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const result = evaluateExportEligibility(record, { activeExportId: exportId });
+    expect(result.ok).toBe(true);
+  });
 });

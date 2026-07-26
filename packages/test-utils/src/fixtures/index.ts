@@ -292,6 +292,32 @@ export const generatedProjectFixture: GeneratedProjectV1 = {
       content: ["@tailwind base;", "@tailwind components;", "@tailwind utilities;"].join("\n"),
     },
     {
+      path: "postcss.config.js",
+      language: "js",
+      purpose: "PostCSS configuration for Tailwind CSS",
+      content: [
+        "export default {",
+        "  plugins: {",
+        "    tailwindcss: {},",
+        "    autoprefixer: {},",
+        "  },",
+        "};",
+      ].join("\n"),
+    },
+    {
+      path: "tailwind.config.js",
+      language: "js",
+      purpose: "Tailwind CSS configuration",
+      content: [
+        "/** @type {import('tailwindcss').Config} */",
+        "export default {",
+        '  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],',
+        "  theme: { extend: {} },",
+        "  plugins: [],",
+        "};",
+      ].join("\n"),
+    },
+    {
       path: "vite.config.ts",
       language: "ts",
       purpose: "Vite configuration",

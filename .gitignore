@@ -2,13 +2,14 @@
 node_modules/
 .pnpm-store/
 .pnpm-debug.log*
+.corepack-shims/
 
 # Local databases and generated state
 *.db
 *.db-shm
 *.db-wal
 
-# Environment files
+# Environment files (never commit real secrets)
 .env
 .env.*
 !.env.example
@@ -20,7 +21,33 @@ coverage/
 .turbo/
 *.tsbuildinfo
 
-# Runtime uploads
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+apps/web/scripts/*-report.json
+scripts/*-report.json
+
+# Runtime storage and generated artifacts
+storage/
+apps/api/storage/
+apps/api/test-fixtures/
+tmp/
+temp/
+
+# Archives and screenshots generated during export/recovery
+*.zip
+apps/api/storage/**/*.png
+storage/**/*.png
+
+# End-to-end session state and Playwright output
+apps/web/e2e/.auth/
+apps/web/playwright-report/
+apps/web/test-results/
+playwright-report/
+test-results/
+
+# Legacy runtime upload paths
 storage/images/*
 !storage/images/.gitkeep
 storage/comparisons/*

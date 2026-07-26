@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { useAuthStore } from "../features/auth/authStore";
+import { resetInitialSessionRestoreFlag } from "../features/auth/session-restore";
 
 vi.mock("../features/generation-history/useGenerationHistory", () => ({
   useGenerationHistory: () => ({
@@ -33,6 +34,7 @@ vi.mock("../features/auth/authApi", () => ({
 
 describe("App", () => {
   beforeEach(() => {
+    resetInitialSessionRestoreFlag();
     useAuthStore.setState({
       user: {
         id: "11111111-1111-4111-8111-111111111111",
@@ -43,6 +45,8 @@ describe("App", () => {
       sessionExpiresAt: null,
       isInitialized: true,
       isLoading: false,
+      sessionStatus: "authenticated",
+      sessionError: null,
     });
   });
 
@@ -53,6 +57,7 @@ describe("App", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: "Reactify" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New generation" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Upload screenshot" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Project history" })).toBeInTheDocument();
   });

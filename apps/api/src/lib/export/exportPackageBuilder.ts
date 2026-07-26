@@ -1,5 +1,6 @@
 import type { GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { ExportManifest } from "@reactify/generation-contracts";
+import { normalizeProjectStyling } from "../styling/normalizeProjectStyling.js";
 import { validateDependencyRecords } from "../validation/dependencyValidator.js";
 import { validateProjectFilePath } from "../validation/filePathValidator.js";
 import { scanSourceSafety } from "../validation/sourceSafetyScanner.js";
@@ -34,11 +35,12 @@ export function prepareProjectFiles(
   project: GeneratedProjectV1,
   limits: { maxFiles: number; maxFileBytes: number; maxTotalBytes: number },
 ): { ok: true; package: PreparedExportPackage } | { ok: false; message: string } {
+  const { project: styledProject } = normalizeProjectStyling(project);
   const prepared: PreparedExportFile[] = [];
   let totalSizeBytes = 0;
   const seenPaths = new Set<string>();
 
-  const sortedFiles = [...project.files].sort((left, right) =>
+  const sortedFiles = [...styledProject.files].sort((left, right) =>
     normalizeProjectPath(left.path).localeCompare(normalizeProjectPath(right.path)),
   );
 

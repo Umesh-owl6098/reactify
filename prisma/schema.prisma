@@ -477,6 +477,7 @@ model JobAttempt {
   heartbeatAt      DateTime?
   failureCode      String?
   failureMessage   String?
+  failureMetadata  Json?
   retryScheduledAt DateTime?
   provider         String?
   model            String?

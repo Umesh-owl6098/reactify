@@ -1,5 +1,6 @@
 import type { PipelineRunner } from "../../pipeline/PipelineRunner.js";
 import type { JobExecutionContext, JobHandlerResult } from "../job-context.js";
+import { throwPipelineFailure } from "../pipeline-failure.js";
 import { PermanentJobError } from "../job-errors.js";
 import { ErrorCode } from "@reactify/shared";
 import type { AutomaticRepairJobPayloadSchema } from "@reactify/shared";
@@ -14,7 +15,7 @@ export function createAutomaticRepairHandler(runner: PipelineRunner) {
     await context.progress.report(15, "Repairing compilation errors");
 
     const result = await runner.runSegment(data.generationId, "automatic_repair", {
-      stopAfter: "automatic_repair",
+      stopAfter: "preview_ready",
       onProgress: (progress, message) => context.progress.report(progress, message),
       shouldCancel: () => context.isCancelled(),
       ownsLock: () => context.ownsLock(),
@@ -25,7 +26,7 @@ export function createAutomaticRepairHandler(runner: PipelineRunner) {
     }
 
     if (result.outcome === "failed") {
-      throw new PermanentJobError(result.code, result.message);
+      throwPipelineFailure(result.code, result.message, result.providerMetadata);
     }
 
     if (result.outcome === "paused_sandbox") {

@@ -12,10 +12,34 @@ import {
 import type { ImageStorage } from "../lib/imageStorage.js";
 import { validateSandboxValidationReport } from "../lib/sandboxValidationReport.js";
 import { computeProjectHash } from "../lib/projectHash.js";
-import { NoopPipelineLogger } from "./logger.js";
+import { ConsolePipelineLogger } from "./logger.js";
+import { createMockFailureMessage } from "./mock-failure-stage.js";
+import { logError, logEvent } from "../lib/structured-log.js";
 import type { StageRegistry } from "./registry.js";
 import type { GenerationStore } from "./store.js";
 import type { PipelineState } from "./types.js";
+import { finalizeValidatedRepairVersion } from "../lib/repair/repairVersionFinalization.js";
+
+const TRANSIENT_STAGE_FAILURE_CODES = new Set<string>([
+  ErrorCode.AI_TIMEOUT,
+  ErrorCode.AI_RATE_LIMITED,
+  ErrorCode.AI_PROVIDER_UNAVAILABLE,
+  ErrorCode.RATE_LIMITED,
+  ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
+  ErrorCode.GENERATED_PROJECT_MISSING_REQUIRED_FILES,
+  ErrorCode.GENERATED_PROJECT_TOKEN_TRUNCATED,
+  ErrorCode.PROVIDER_RESPONSE_NOT_JSON,
+  ErrorCode.AI_RESPONSE_VERSION_MISSING,
+]);
+
+const STAGE_IN_PROGRESS_STATUS: Partial<
+  Record<PipelineStageName, import("./types.js").GenerationRecord["status"]>
+> = {
+  design_analysis: "Analyzing",
+  generation_plan_creation: "Planning",
+  react_project_generation: "Generating",
+  automatic_repair: "Repairing",
+};
 
 function shouldSkipStage(stage: PipelineStageName, flags: FeatureFlags, state: PipelineState): boolean {
   if (stage === "automatic_repair" && !flags.enableRepair && !state.repairRequired) {
@@ -49,6 +73,42 @@ function getStageStartIndex(fromStage?: PipelineStageName): number {
   return index >= 0 ? index : 0;
 }
 
+function finalizeSuccessfulSegment(
+  store: GenerationStore,
+  generationId: string,
+  state: PipelineState,
+): void {
+  const finished = store.get(generationId);
+  if (!finished || finished.cancelled) {
+    return;
+  }
+
+  if (state.repairRequired && finished.status !== "RepairFailed") {
+    finished.status = "Repairing";
+  } else if (finished.status !== "RepairFailed") {
+    finished.status = "Ready";
+  }
+  if (state.generatedProject) {
+    finished.outputs.generatedProject = state.generatedProject;
+  }
+  if (state.projectHash) {
+    finished.projectHash = state.projectHash;
+  }
+  if (!finished.pipelineState) {
+    finished.pipelineState = state;
+  }
+  if (finished.status === "Ready" && finished.sandboxValidation?.projectHash) {
+    finalizeValidatedRepairVersion(finished, finished.sandboxValidation.projectHash);
+  }
+  finished.activeStage = null;
+  finished.awaitingPlanConfirmation = false;
+  finished.awaitingSandboxValidation = false;
+  finished.pipelineState = null;
+  finished.resumeInProgress = false;
+  finished.sandboxResumeInProgress = false;
+  finished.updatedAt = new Date().toISOString();
+}
+
 export interface PipelineRunnerServices {
   aiProvider: AIProvider;
   loadPrompt: LoadPromptFn;
@@ -58,6 +118,7 @@ export interface PipelineRunnerServices {
     maxPatchFileBytes: number;
     maxPatchTotalBytes: number;
   };
+  mockFailureStage?: PipelineStageName;
 }
 
 export interface PipelineRunOptions {
@@ -71,7 +132,18 @@ export type PipelineSegmentResult =
   | { outcome: "completed" }
   | { outcome: "paused_plan_review" }
   | { outcome: "paused_sandbox" }
-  | { outcome: "failed"; code: string; message: string }
+  | {
+      outcome: "failed";
+      code: string;
+      message: string;
+      providerMetadata?: {
+        httpStatus?: number;
+        providerErrorType?: string;
+        providerErrorCode?: string;
+        providerRequestId?: string;
+        providerMessage?: string;
+      };
+    }
   | { outcome: "cancelled" };
 
 export class PipelineRunner {
@@ -85,7 +157,12 @@ export class PipelineRunner {
     private readonly services: PipelineRunnerServices,
   ) {}
 
-  start(input: { ownerId: string; imageId: string; projectId?: string; failStage?: PipelineStageName }): string {
+  start(input: {
+    ownerId: string;
+    imageId: string;
+    projectId?: string;
+    deferPersist?: boolean;
+  }): string {
     const record = this.store.create(input);
     return record.id;
   }
@@ -170,6 +247,11 @@ export class PipelineRunner {
       return { ok: true, duplicate: true, shouldResume: false };
     }
 
+    logEvent("sandbox_validation_submitted", {
+      generationId,
+      shouldResume: true,
+    });
+
     const updated = this.store.get(generationId);
     const shouldResume =
       updated?.status !== "RepairFailed" &&
@@ -184,6 +266,7 @@ export class PipelineRunner {
   }
 
   async resumeFromSandbox(generationId: string, options?: PipelineRunOptions): Promise<PipelineSegmentResult> {
+    logEvent("sandbox_pipeline_resuming", { generationId, fromStage: "automatic_repair" });
     return this.runSegment(generationId, "automatic_repair", options);
   }
 
@@ -212,23 +295,28 @@ export class PipelineRunner {
     this.runningGenerations.add(generationId);
 
     try {
+      // A resumed run starts from its checkpoint, but the record's outputs are
+      // the durable copy that every other service reads and that later work
+      // (re-analysis, edits, corrections) writes to. Let the record win so a
+      // stale checkpoint cannot roll those outputs back.
       const persistedState = record.pipelineState;
-      let state: PipelineState = persistedState ?? {
-        imageId: record.imageId,
-        designAnalysis: record.outputs.designAnalysis ?? undefined,
-        generationPlan: record.outputs.generationPlan ?? undefined,
-        generatedProject: record.outputs.generatedProject ?? undefined,
-        planConfirmed: record.confirmedAt ? true : undefined,
-        analysisMetadata: record.analysis ?? undefined,
-        planMetadata: record.plan ?? undefined,
-        projectMetadata: record.project ?? undefined,
-        schemaValidation: record.schemaValidation ?? undefined,
-        staticValidation: record.staticValidation ?? undefined,
-        sandboxValidation: record.sandboxValidation ?? undefined,
-        projectHash: record.projectHash ?? undefined,
+      let state: PipelineState = {
+        ...(persistedState ?? { imageId: record.imageId }),
+        imageId: persistedState?.imageId ?? record.imageId,
+        designAnalysis: record.outputs.designAnalysis ?? persistedState?.designAnalysis ?? undefined,
+        generationPlan: record.outputs.generationPlan ?? persistedState?.generationPlan ?? undefined,
+        generatedProject: record.outputs.generatedProject ?? persistedState?.generatedProject ?? undefined,
+        planConfirmed: persistedState?.planConfirmed ?? (record.confirmedAt ? true : undefined),
+        analysisMetadata: persistedState?.analysisMetadata ?? record.analysis ?? undefined,
+        planMetadata: persistedState?.planMetadata ?? record.plan ?? undefined,
+        projectMetadata: persistedState?.projectMetadata ?? record.project ?? undefined,
+        schemaValidation: persistedState?.schemaValidation ?? record.schemaValidation ?? undefined,
+        staticValidation: persistedState?.staticValidation ?? record.staticValidation ?? undefined,
+        sandboxValidation: persistedState?.sandboxValidation ?? record.sandboxValidation ?? undefined,
+        projectHash: record.projectHash ?? persistedState?.projectHash ?? undefined,
       };
 
-      const logger = new NoopPipelineLogger();
+      const logger = new ConsolePipelineLogger(record.id);
       const context: PipelineContext = {
         generationId: record.id,
         projectId: record.projectId,
@@ -239,7 +327,6 @@ export class PipelineRunner {
         loadPrompt: this.services.loadPrompt,
         aiConfig: this.services.aiConfig,
         repairConfig: this.services.repairConfig,
-        failStage: record.failStage,
       };
 
       const startIndex = getStageStartIndex(fromStage);
@@ -310,7 +397,6 @@ export class PipelineRunner {
           state,
           context,
           stageName,
-          current.failStage,
         );
 
         if (result.status === "paused") {
@@ -389,20 +475,37 @@ export class PipelineRunner {
               outcome: "failed",
               code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
               message: result.errorMessage ?? "Automatic repair failed",
+              providerMetadata: result.providerMetadata,
+            };
+          }
+
+          const failureCode = result.errorCode ?? ErrorCode.INTERNAL_ERROR;
+          current.errors.push({
+            stage: stageName,
+            code: failureCode,
+            message: result.errorMessage ?? "Stage failed",
+          });
+
+          if (TRANSIENT_STAGE_FAILURE_CODES.has(failureCode)) {
+            current.failStage = stageName;
+            current.status =
+              STAGE_IN_PROGRESS_STATUS[stageName] ?? current.status;
+            return {
+              outcome: "failed",
+              code: failureCode,
+              message: result.errorMessage ?? "Stage failed",
+              providerMetadata: result.providerMetadata,
             };
           }
 
           current.status = "Failed";
           current.activeStage = null;
-          current.errors.push({
-            stage: stageName,
-            code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
-            message: result.errorMessage ?? "Stage failed",
-          });
+          current.failStage = stageName;
           return {
             outcome: "failed",
-            code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
+            code: failureCode,
             message: result.errorMessage ?? "Stage failed",
+            providerMetadata: result.providerMetadata,
           };
         }
 
@@ -413,6 +516,9 @@ export class PipelineRunner {
         }
 
         if (options.stopAfter === stageName) {
+          if (stageName === "preview_ready") {
+            finalizeSuccessfulSegment(this.store, generationId, state);
+          }
           return { outcome: "completed" };
         }
       }
@@ -422,18 +528,7 @@ export class PipelineRunner {
         return { outcome: "cancelled" };
       }
 
-      if (state.repairRequired && finished.status !== "RepairFailed") {
-        finished.status = "Repairing";
-      } else if (finished.status !== "RepairFailed") {
-        finished.status = "Ready";
-      }
-      finished.activeStage = null;
-      finished.awaitingPlanConfirmation = false;
-      finished.awaitingSandboxValidation = false;
-      finished.pipelineState = null;
-      finished.resumeInProgress = false;
-      finished.sandboxResumeInProgress = false;
-      finished.updatedAt = new Date().toISOString();
+      finalizeSuccessfulSegment(this.store, generationId, state);
       return { outcome: "completed" };
     } finally {
       this.runningGenerations.delete(generationId);
@@ -463,15 +558,14 @@ export class PipelineRunner {
     state: PipelineState,
     context: PipelineContext,
     stageName: PipelineStageName,
-    failStage?: PipelineStageName,
   ): Promise<StageResult<unknown>> {
     const startedAt = Date.now();
 
-    if (failStage === stageName) {
+    if (this.services.mockFailureStage === stageName) {
       return {
         status: "failed",
-        errorCode: ErrorCode.INTERNAL_ERROR,
-        errorMessage: `Forced failure at ${stageName}`,
+        errorCode: ErrorCode.MOCK_FAILURE_INJECTED,
+        errorMessage: createMockFailureMessage(stageName),
         durationMs: Date.now() - startedAt,
       };
     }
@@ -483,6 +577,10 @@ export class PipelineRunner {
         durationMs: result.durationMs ?? Date.now() - startedAt,
       };
     } catch (error) {
+      logError("pipeline_stage_exception", error, {
+        generationId: context.generationId,
+        stage: stageName,
+      });
       return {
         status: "failed",
         errorCode: ErrorCode.INTERNAL_ERROR,

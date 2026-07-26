@@ -14,7 +14,9 @@ import type { VisualComparisonService } from "../lib/visual-comparison/VisualCom
 import type { GenerationStore } from "../pipeline/store.js";
 import type { AuthorizationService } from "../auth/AuthorizationService.js";
 import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
 import type { JobService } from "../jobs/job-service.js";
+import type { PersistenceService } from "../persistence/PersistenceService.js";
 
 function sendError(
   reply: FastifyReply,
@@ -46,10 +48,34 @@ export async function registerVisualComparisonRoutes(
   visualComparisonService: VisualComparisonService,
   authorization: AuthorizationService,
   jobService?: JobService,
+  persistence?: PersistenceService,
 ): Promise<void> {
+  const refreshOwnedGeneration = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    generationId: string,
+  ) => {
+    const owned = requireOwnedGeneration(authorization, request, reply, generationId, sendError);
+    if (!owned || !persistence) {
+      return owned;
+    }
+
+    const refreshed = await hydrateOwnedGenerationRecord({
+      store,
+      persistence,
+      generationId,
+      ownerId: request.auth!.user.id,
+    });
+    if (!refreshed) {
+      sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return null;
+    }
+    return refreshed;
+  };
+
   app.post("/api/v1/generations/:id/visual-comparisons", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -76,7 +102,7 @@ export async function registerVisualComparisonRoutes(
 
   app.post("/api/v1/generations/:id/visual-comparisons/:comparisonId/screenshot", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -97,7 +123,7 @@ export async function registerVisualComparisonRoutes(
 
   app.get("/api/v1/generations/:id/visual-comparisons", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -112,7 +138,7 @@ export async function registerVisualComparisonRoutes(
 
   app.get("/api/v1/generations/:id/visual-comparisons/:comparisonId", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -141,7 +167,7 @@ export async function registerVisualComparisonRoutes(
       return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Invalid artifact type.");
     }
 
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -163,7 +189,7 @@ export async function registerVisualComparisonRoutes(
 
   app.post("/api/v1/generations/:id/visual-comparisons/:comparisonId/correct", async (request, reply) => {
     const { id, comparisonId } = request.params as { id: string; comparisonId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }

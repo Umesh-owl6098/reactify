@@ -17,10 +17,13 @@ const EnvSchema = z.object({
   PASSWORD_HASH_PARALLELISM: z.coerce.number().int().positive().default(1),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   AUTH_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(20),
-  AI_PROVIDER: z.enum(["anthropic", "mock"]).default("mock"),
+  AI_PROVIDER: z.enum(["anthropic", "mock", "openai"]).default("mock"),
+  MOCK_AI_FAILURE_STAGE: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-3-5-sonnet-20241022"),
-  AI_TIMEOUT_MS: z.coerce.number().default(60_000),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4o"),
+  AI_TIMEOUT_MS: z.coerce.number().default(180_000),
   AI_MAX_TOKENS: z.coerce.number().default(8192),
   AI_TEMPERATURE: z.coerce.number().default(0.2),
   ENABLE_REPAIR: z.coerce.boolean().default(true),
@@ -34,6 +37,7 @@ const EnvSchema = z.object({
   MAX_EXPORT_FILE_BYTES: z.coerce.number().int().positive().default(512 * 1024),
   MAX_EXPORT_TOTAL_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
   MAX_EXPORT_ZIP_BYTES: z.coerce.number().int().positive().default(8 * 1024 * 1024),
+  EXPORT_STORAGE_DIR: z.string().default("storage/exports"),
   MAX_EDIT_INSTRUCTION_LENGTH: z.coerce.number().int().positive().default(2000),
   MIN_EDIT_INSTRUCTION_LENGTH: z.coerce.number().int().positive().default(3),
   MAX_EDIT_CLARIFICATION_ROUNDS: z.coerce.number().int().positive().default(3),
@@ -101,6 +105,15 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
     }
 
     console.error("ANTHROPIC_API_KEY is required when AI_PROVIDER=anthropic");
+    process.exit(1);
+  }
+
+  if (parsed.AI_PROVIDER === "openai" && !parsed.OPENAI_API_KEY) {
+    if (parsed.NODE_ENV === "test") {
+      return parsed;
+    }
+
+    console.error("OPENAI_API_KEY is required when AI_PROVIDER=openai");
     process.exit(1);
   }
 

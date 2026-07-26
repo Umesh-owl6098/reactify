@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { evaluatePreviewReadiness, type PreviewReadiness, type PreviewSignals } from "./previewReadiness";
+import type { SandpackTemplateResolutionError } from "./resolveSandpackTemplate";
 
 export type PreviewViewportPreset = "mobile" | "tablet" | "desktop" | "custom";
 
@@ -34,6 +36,23 @@ interface PreviewStoreState {
   reportSubmitted: boolean;
   reportError: string | null;
   reloadToken: number;
+  filesLoaded: boolean;
+  providerMounted: boolean;
+  bundlerConnected: boolean;
+  compilationSucceeded: boolean;
+  runtimeSucceeded: boolean;
+  iframeLoaded: boolean;
+  domRendered: boolean;
+  documentHeight: number | null;
+  fatalRuntimeError: string | null;
+  compilationValidated: boolean;
+  runtimeValidated: boolean;
+  previewConnected: boolean;
+  exportEligible: boolean;
+  comparisonCaptureReady: boolean;
+  telemetryAvailable: boolean;
+  bundlerUnavailable: string | null;
+  templateErrors: SandpackTemplateResolutionError[];
   setViewportPreset: (preset: Exclude<PreviewViewportPreset, "custom">) => void;
   setCustomViewport: (width: number, height: number) => void;
   toggleFitToContainer: () => void;
@@ -48,6 +67,15 @@ interface PreviewStoreState {
   selectDiagnosticPath: (path: string | null) => void;
   markReportSubmitted: () => void;
   setReportError: (message: string | null) => void;
+  setCompilationValidated: (value: boolean) => void;
+  setRuntimeValidated: (value: boolean) => void;
+  setPreviewConnected: (value: boolean) => void;
+  setExportEligible: (value: boolean) => void;
+  setComparisonCaptureReady: (value: boolean) => void;
+  setTelemetryAvailable: (value: boolean) => void;
+  setBundlerUnavailable: (message: string | null) => void;
+  setPreviewSignals: (signals: Partial<PreviewSignals & { documentHeight: number | null }>) => void;
+  setTemplateErrors: (errors: SandpackTemplateResolutionError[]) => void;
   reloadPreview: () => void;
   resetReportState: () => void;
   reset: () => void;
@@ -72,6 +100,37 @@ const initialState = {
   reportSubmitted: false,
   reportError: null,
   reloadToken: 0,
+  filesLoaded: false,
+  providerMounted: false,
+  bundlerConnected: false,
+  compilationSucceeded: false,
+  runtimeSucceeded: false,
+  iframeLoaded: false,
+  domRendered: false,
+  documentHeight: null,
+  fatalRuntimeError: null,
+  compilationValidated: false,
+  runtimeValidated: false,
+  previewConnected: false,
+  exportEligible: false,
+  comparisonCaptureReady: false,
+  telemetryAvailable: true,
+  bundlerUnavailable: null,
+  templateErrors: [],
+};
+
+/** Signals that describe the live Sandpack session, cleared on every reload. */
+const initialRuntimeSignals = {
+  providerMounted: false,
+  bundlerConnected: false,
+  compilationSucceeded: false,
+  runtimeSucceeded: false,
+  iframeLoaded: false,
+  domRendered: false,
+  documentHeight: null,
+  fatalRuntimeError: null,
+  previewConnected: false,
+  bundlerUnavailable: null,
 };
 
 export const usePreviewStore = create<PreviewStoreState>((set) => ({
@@ -98,8 +157,18 @@ export const usePreviewStore = create<PreviewStoreState>((set) => ({
   selectDiagnosticPath: (path) => set({ selectedDiagnosticPath: path }),
   markReportSubmitted: () => set({ reportSubmitted: true, reportError: null }),
   setReportError: (message) => set({ reportError: message }),
+  setCompilationValidated: (compilationValidated) => set({ compilationValidated }),
+  setRuntimeValidated: (runtimeValidated) => set({ runtimeValidated }),
+  setPreviewConnected: (previewConnected) => set({ previewConnected }),
+  setExportEligible: (exportEligible) => set({ exportEligible }),
+  setComparisonCaptureReady: (comparisonCaptureReady) => set({ comparisonCaptureReady }),
+  setTelemetryAvailable: (telemetryAvailable) => set({ telemetryAvailable }),
+  setBundlerUnavailable: (bundlerUnavailable) => set({ bundlerUnavailable }),
+  setPreviewSignals: (signals) => set(signals),
+  setTemplateErrors: (templateErrors) => set({ templateErrors }),
   reloadPreview: () =>
     set((state) => ({
+      ...initialRuntimeSignals,
       reloadToken: state.reloadToken + 1,
       phase: "preparing",
       reportSubmitted: false,
@@ -121,6 +190,25 @@ export const usePreviewStore = create<PreviewStoreState>((set) => ({
     }),
   reset: () => set(initialState),
 }));
+
+export type { PreviewReadiness };
+
+export function selectPreviewSignals(state: PreviewStoreState): PreviewSignals {
+  return {
+    filesLoaded: state.filesLoaded,
+    providerMounted: state.providerMounted,
+    bundlerConnected: state.bundlerConnected,
+    compilationSucceeded: state.compilationSucceeded,
+    runtimeSucceeded: state.runtimeSucceeded,
+    iframeLoaded: state.iframeLoaded,
+    domRendered: state.domRendered,
+    fatalRuntimeError: state.fatalRuntimeError,
+  };
+}
+
+export function selectPreviewReadiness(state: PreviewStoreState): PreviewReadiness {
+  return evaluatePreviewReadiness(selectPreviewSignals(state));
+}
 
 export function validateCustomViewport(width: number, height: number): { ok: true } | { ok: false; message: string } {
   if (!Number.isFinite(width) || !Number.isFinite(height)) {

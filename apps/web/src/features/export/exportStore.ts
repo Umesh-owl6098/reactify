@@ -10,6 +10,8 @@ interface ExportStoreState {
   latestSummary: ExportSummary | null;
   history: ExportSummary[];
   isSubmitting: boolean;
+  isDownloading: boolean;
+  downloadError: string | null;
   openDialog: () => void;
   closeDialog: () => void;
   setPhase: (phase: ExportPhase) => void;
@@ -17,6 +19,8 @@ interface ExportStoreState {
   setLatestSummary: (summary: ExportSummary | null) => void;
   setHistory: (history: ExportSummary[]) => void;
   setSubmitting: (value: boolean) => void;
+  setDownloading: (value: boolean) => void;
+  setDownloadError: (message: string | null) => void;
   reset: () => void;
 }
 
@@ -27,6 +31,8 @@ const initialState = {
   latestSummary: null,
   history: [] as ExportSummary[],
   isSubmitting: false,
+  isDownloading: false,
+  downloadError: null,
 };
 
 export const useExportStore = create<ExportStoreState>((set) => ({
@@ -38,5 +44,7 @@ export const useExportStore = create<ExportStoreState>((set) => ({
   setLatestSummary: (latestSummary) => set({ latestSummary }),
   setHistory: (history) => set({ history }),
   setSubmitting: (isSubmitting) => set({ isSubmitting }),
+  setDownloading: (isDownloading) => set({ isDownloading }),
+  setDownloadError: (downloadError) => set({ downloadError }),
   reset: () => set(initialState),
 }));

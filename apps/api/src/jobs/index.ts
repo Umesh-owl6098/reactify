@@ -26,6 +26,7 @@ export function createJobServices(
     editService: EditService;
     exportService: ExportService;
     visualComparisonService: VisualComparisonService;
+    loadGenerationById?: (generationId: string) => Promise<import("../pipeline/types.js").GenerationRecord | null>;
   },
   usageService?: ReturnType<typeof createUsageService>,
   workerPresenceFile?: string,
@@ -43,6 +44,7 @@ export function createJobServices(
     usageService: resolvedUsageService,
     env,
     workerPresenceFile,
+    loadGenerationById: deps.loadGenerationById,
     logger: {
       info: (event, fields) => console.info({ event, ...fields }),
       warn: (event, fields) => console.warn({ event, ...fields }),

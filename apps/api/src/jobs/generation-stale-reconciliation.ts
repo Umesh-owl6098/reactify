@@ -6,11 +6,27 @@ import type { JobConfig } from "./job-config.js";
 import type { JobRepository } from "./job-repository.js";
 import type { BackgroundJobType } from "./job-types.js";
 
+interface StaleReconciliationJobService {
+  enqueue(input: {
+    generationId: string;
+    ownerId: string;
+    jobType: BackgroundJobType;
+    payload: Record<string, unknown>;
+    idempotencyKey?: string;
+  }): Promise<unknown>;
+}
+
 const STATUS_EXPECTED_JOB: Partial<Record<GenerationRecord["status"], BackgroundJobType>> = {
   Analyzing: "design_analysis",
   Planning: "generation_plan_creation",
   Generating: "react_project_generation",
   Repairing: "automatic_repair",
+};
+
+const SUCCESSOR_JOB: Partial<Record<BackgroundJobType, BackgroundJobType>> = {
+  design_analysis: "generation_plan_creation",
+  generation_plan_creation: "react_project_generation",
+  react_project_generation: "automatic_repair",
 };
 
 const PENDING_JOB_STATUSES = new Set(["queued", "claimed", "running", "retry_scheduled", "waiting_for_client"]);
@@ -43,7 +59,8 @@ export async function reconcileStaleGenerationState(
   generationId: string,
   store: GenerationStore,
   repository: JobRepository,
-  config: Pick<JobConfig, "staleGenerationThresholdMs" | "jobMissingGraceMs">,
+  config: Pick<JobConfig, "staleGenerationThresholdMs" | "jobMissingGraceMs" | "lockTtlMs">,
+  jobService?: StaleReconciliationJobService,
 ): Promise<void> {
   const record = store.get(generationId);
   if (!record || record.status === "Failed" || record.status === "Cancelled" || record.status === "Ready") {
@@ -87,6 +104,15 @@ export async function reconcileStaleGenerationState(
   }
 
   if (PENDING_JOB_STATUSES.has(relevantJob.status)) {
+    if (relevantJob.status === "claimed" || relevantJob.status === "running") {
+      const heartbeatAt =
+        relevantJob.lastHeartbeatAt ?? relevantJob.lockedAt ?? relevantJob.startedAt ?? relevantJob.updatedAt;
+      if (heartbeatAt && Date.now() - heartbeatAt.getTime() >= config.lockTtlMs) {
+        await repository.requeueStaleJob(relevantJob.id);
+      }
+      return;
+    }
+
     const staleMs = inconsistencyAgeMs(record);
     if (relevantJob.status === "queued" && staleMs >= config.staleGenerationThresholdMs) {
       failGeneration(
@@ -113,14 +139,64 @@ export async function reconcileStaleGenerationState(
     return;
   }
 
-  if (relevantJob.status === "completed" && record.status === "Analyzing") {
-    failGeneration(
-      store,
-      record,
-      expectedJobType,
-      ErrorCode.JOB_STALLED,
-      "Design analysis completed but the generation did not advance. Retry to continue.",
-      { manualRetryAllowed: true },
+  if (relevantJob.status === "completed") {
+    const previewReadyCompleted = record.stages.some(
+      (stage) => stage.stage === "preview_ready" && stage.status === "completed",
     );
+    const sandboxSucceeded =
+      record.sandboxValidation?.compilation.success === true &&
+      record.sandboxValidation?.runtime.success === true;
+
+    if (
+      record.status === "Repairing" &&
+      expectedJobType === "automatic_repair" &&
+      record.repairStatus === "succeeded" &&
+      sandboxSucceeded &&
+      !previewReadyCompleted &&
+      jobService
+    ) {
+      const activeRepair = await repository.findActiveJobByType(generationId, "automatic_repair");
+      if (!activeRepair) {
+        await jobService.enqueue({
+          generationId,
+          ownerId: record.ownerId,
+          jobType: "automatic_repair",
+          payload: { generationId },
+          idempotencyKey: `finish-preview-${generationId}`,
+        });
+      }
+      return;
+    }
+
+    const successorType = SUCCESSOR_JOB[expectedJobType];
+    if (successorType) {
+      const successorJob = await repository.findRelevantJobForReconciliation(generationId, successorType);
+      if (
+        successorJob &&
+        (PENDING_JOB_STATUSES.has(successorJob.status) || successorJob.status === "waiting_for_client")
+      ) {
+        return;
+      }
+    }
+
+    const completedAgeMs = relevantJob.updatedAt
+      ? Date.now() - relevantJob.updatedAt.getTime()
+      : inconsistencyAgeMs(record);
+    if (completedAgeMs < config.jobMissingGraceMs) {
+      return;
+    }
+
+    if (record.status === "Analyzing" && expectedJobType === "design_analysis") {
+      failGeneration(
+        store,
+        record,
+        expectedJobType,
+        ErrorCode.JOB_STALLED,
+        "Design analysis completed but the generation did not advance. Retry to continue.",
+        { manualRetryAllowed: true },
+      );
+      return;
+    }
+
   }
 }

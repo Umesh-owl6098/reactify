@@ -7,6 +7,14 @@ export interface RegionDetectionOptions {
   minRegionSize: number;
 }
 
+/**
+ * Fraction of a cell's pixels that must differ before the cell counts as part
+ * of a region. Without this, the thin anti-aliased outline around every shape
+ * forms a single connected path across the whole image, and the resulting
+ * bounding box covers the entire canvas while describing nothing.
+ */
+const CELL_DENSITY_THRESHOLD = 0.35;
+
 interface RawRegion {
   x: number;
   y: number;
@@ -63,19 +71,39 @@ function mergeRegions(regions: RawRegion[], mergeDistance: number): RawRegion[] 
   return merged;
 }
 
-function classifyRegion(region: RawRegion, canvasWidth: number, canvasHeight: number): VisualRegionDifference["likelyCategory"] {
-  const areaRatio = (region.width * region.height) / (canvasWidth * canvasHeight);
-  const meanDiff = region.diffCount > 0 ? region.diffSum / region.diffCount : 0;
+interface RegionShape {
+  /** Differing pixels as a share of the whole canvas. */
+  coverage: number;
+  /** Differing pixels as a share of the region's own bounding box. */
+  fill: number;
+  /** Mean difference intensity across the differing pixels, 0-255. */
+  meanDiff: number;
+}
 
-  if (areaRatio > 0.35) {
+function measure(region: RawRegion, canvasWidth: number, canvasHeight: number): RegionShape {
+  const boxArea = Math.max(1, region.width * region.height);
+  return {
+    coverage: region.diffCount / (canvasWidth * canvasHeight),
+    fill: region.diffCount / boxArea,
+    meanDiff: region.diffCount > 0 ? region.diffSum / region.diffCount : 0,
+  };
+}
+
+function classifyRegion(
+  region: RawRegion,
+  shape: RegionShape,
+  canvasWidth: number,
+  canvasHeight: number,
+): VisualRegionDifference["likelyCategory"] {
+  if (shape.coverage > 0.2) {
     return "layout";
   }
 
-  if (meanDiff > 180 && areaRatio < 0.02) {
+  if (shape.meanDiff > 180 && shape.coverage < 0.01) {
     return "typography";
   }
 
-  if (meanDiff > 140 && areaRatio < 0.08) {
+  if (shape.fill > 0.75 && shape.meanDiff > 60) {
     return "color";
   }
 
@@ -83,20 +111,22 @@ function classifyRegion(region: RawRegion, canvasWidth: number, canvasHeight: nu
     return "spacing";
   }
 
-  if (areaRatio > 0.12) {
+  if (shape.coverage > 0.05) {
     return "missing_element";
   }
 
-  if (areaRatio > 0.05) {
+  if (shape.coverage > 0.02) {
     return "alignment";
   }
 
   return "unknown";
 }
 
-function describeRegion(category: VisualRegionDifference["likelyCategory"], severity: VisualRegionDifference["severity"]): string {
-  const prefix =
-    severity === "high" ? "Major" : severity === "medium" ? "Moderate" : "Minor";
+function describeRegion(
+  category: VisualRegionDifference["likelyCategory"],
+  severity: VisualRegionDifference["severity"],
+): string {
+  const prefix = severity === "high" ? "Major" : severity === "medium" ? "Moderate" : "Minor";
   switch (category) {
     case "layout":
       return `${prefix} layout mismatch detected in this area.`;
@@ -119,73 +149,102 @@ function describeRegion(category: VisualRegionDifference["likelyCategory"], seve
   }
 }
 
+/**
+ * Groups differing pixels into localized regions.
+ *
+ * Detection runs on a coarse grid rather than on individual pixels: a cell
+ * joins a region only when enough of it actually differs, so a region's bounds
+ * describe a genuinely changed area instead of the hull of a sparse web of
+ * outlines. Severity likewise follows how much of the canvas really differs,
+ * not how large a bounding box happens to be.
+ */
 export function detectDifferenceRegions(
   diffRaw: Buffer,
   width: number,
   height: number,
   options: RegionDetectionOptions,
 ): VisualRegionDifference[] {
-  const visited = new Uint8Array(width * height);
-  const rawRegions: RawRegion[] = [];
+  const cellSize = Math.min(32, Math.max(8, Math.round(Math.min(width, height) / 32)));
+  const columns = Math.ceil(width / cellSize);
+  const rows = Math.ceil(height / cellSize);
+
+  const cellPixels = new Int32Array(columns * rows);
+  const cellDiffCount = new Int32Array(columns * rows);
+  const cellDiffSum = new Float64Array(columns * rows);
 
   for (let y = 0; y < height; y += 1) {
+    const cellRow = Math.floor(y / cellSize);
     for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      if (visited[index]) {
+      const cell = cellRow * columns + Math.floor(x / cellSize);
+      cellPixels[cell] = (cellPixels[cell] ?? 0) + 1;
+
+      const offset = (y * width + x) * 4;
+      if ((diffRaw[offset + 3] ?? 0) <= options.noiseThreshold) {
         continue;
       }
 
-      const offset = index * 4;
-      const alpha = diffRaw[offset + 3] ?? 0;
-      if (alpha <= options.noiseThreshold) {
+      // The diff mask marks changes in a single channel, so take the strongest
+      // channel rather than the average of all three.
+      cellDiffCount[cell] = (cellDiffCount[cell] ?? 0) + 1;
+      cellDiffSum[cell] = (cellDiffSum[cell] ?? 0) + Math.max(
+        diffRaw[offset] ?? 0,
+        diffRaw[offset + 1] ?? 0,
+        diffRaw[offset + 2] ?? 0,
+      );
+    }
+  }
+
+  const hot = new Uint8Array(columns * rows);
+  for (let cell = 0; cell < hot.length; cell += 1) {
+    const pixels = cellPixels[cell] ?? 0;
+    if (pixels > 0 && (cellDiffCount[cell] ?? 0) / pixels >= CELL_DENSITY_THRESHOLD) {
+      hot[cell] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(columns * rows);
+  const rawRegions: RawRegion[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const start = row * columns + column;
+      if (!hot[start] || visited[start]) {
         continue;
       }
 
-      const stack = [{ x, y }];
-      visited[index] = 1;
-      let minX = x;
-      let maxX = x;
-      let minY = y;
-      let maxY = y;
+      visited[start] = 1;
+      const stack = [{ row, column }];
+      let minColumn = column;
+      let maxColumn = column;
+      let minRow = row;
+      let maxRow = row;
       let diffSum = 0;
       let diffCount = 0;
 
       while (stack.length > 0) {
-        const point = stack.pop();
-        if (!point) {
-          continue;
-        }
+        const cell = stack.pop()!;
+        const index = cell.row * columns + cell.column;
 
-        minX = Math.min(minX, point.x);
-        maxX = Math.max(maxX, point.x);
-        minY = Math.min(minY, point.y);
-        maxY = Math.max(maxY, point.y);
-
-        const pointOffset = (point.y * width + point.x) * 4;
-        diffSum +=
-          (diffRaw[pointOffset] ?? 0) +
-          (diffRaw[pointOffset + 1] ?? 0) +
-          (diffRaw[pointOffset + 2] ?? 0);
-        diffCount += 1;
+        minColumn = Math.min(minColumn, cell.column);
+        maxColumn = Math.max(maxColumn, cell.column);
+        minRow = Math.min(minRow, cell.row);
+        maxRow = Math.max(maxRow, cell.row);
+        diffSum += cellDiffSum[index] ?? 0;
+        diffCount += cellDiffCount[index] ?? 0;
 
         const neighbors = [
-          { x: point.x - 1, y: point.y },
-          { x: point.x + 1, y: point.y },
-          { x: point.x, y: point.y - 1 },
-          { x: point.x, y: point.y + 1 },
+          { row: cell.row - 1, column: cell.column },
+          { row: cell.row + 1, column: cell.column },
+          { row: cell.row, column: cell.column - 1 },
+          { row: cell.row, column: cell.column + 1 },
         ];
 
         for (const neighbor of neighbors) {
-          if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= width || neighbor.y >= height) {
+          if (neighbor.row < 0 || neighbor.column < 0 || neighbor.row >= rows || neighbor.column >= columns) {
             continue;
           }
-          const neighborIndex = neighbor.y * width + neighbor.x;
-          if (visited[neighborIndex]) {
-            continue;
-          }
-          const neighborOffset = neighborIndex * 4;
-          const neighborAlpha = diffRaw[neighborOffset + 3] ?? 0;
-          if (neighborAlpha <= options.noiseThreshold) {
+          const neighborIndex = neighbor.row * columns + neighbor.column;
+          if (visited[neighborIndex] || !hot[neighborIndex]) {
             continue;
           }
           visited[neighborIndex] = 1;
@@ -193,38 +252,34 @@ export function detectDifferenceRegions(
         }
       }
 
-      const regionWidth = maxX - minX + 1;
-      const regionHeight = maxY - minY + 1;
-      if (regionWidth * regionHeight < options.minRegionSize) {
-        continue;
-      }
-
+      const x = minColumn * cellSize;
+      const y = minRow * cellSize;
       rawRegions.push({
-        x: minX,
-        y: minY,
-        width: regionWidth,
-        height: regionHeight,
+        x,
+        y,
+        width: Math.min(width, (maxColumn + 1) * cellSize) - x,
+        height: Math.min(height, (maxRow + 1) * cellSize) - y,
         diffSum,
         diffCount,
       });
     }
   }
 
-  const merged = mergeRegions(rawRegions, options.mergeDistance);
-  const scored = merged
-    .map((region, index) => {
-      const meanDiff = region.diffCount > 0 ? region.diffSum / region.diffCount / 3 : 0;
-      const areaRatio = (region.width * region.height) / (width * height);
-      const differenceScore = Math.min(100, meanDiff / 2.55 + areaRatio * 100);
+  const scored = mergeRegions(rawRegions, options.mergeDistance)
+    .filter((region) => region.diffCount >= options.minRegionSize)
+    .map((region) => {
+      const shape = measure(region, width, height);
+      const differenceScore = Math.min(100, (shape.meanDiff / 2.55) * shape.fill);
       const severity: VisualRegionDifference["severity"] =
-        differenceScore >= 70 || areaRatio > 0.2
+        differenceScore >= 70 && shape.coverage >= 0.05
           ? "high"
-          : differenceScore >= 35 || areaRatio > 0.08
+          : differenceScore >= 35 || shape.coverage >= 0.02
             ? "medium"
             : "low";
-      const likelyCategory = classifyRegion(region, width, height);
+
+      const likelyCategory = classifyRegion(region, shape, width, height);
       return {
-        regionId: `region-${index + 1}`,
+        regionId: "region",
         bounds: {
           x: region.x,
           y: region.y,

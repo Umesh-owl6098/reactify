@@ -51,11 +51,15 @@ export {
   type StageResult,
 } from "./pipeline-types.js";
 export {
+  type AbortSignalLike,
   type AIImageInput,
   type AIInput,
   type AIInvocationOptions,
   type AIInvocationResult,
+  type AIJsonObjectResponseFormat,
+  type AIJsonSchemaResponseFormat,
   type AIProvider,
+  type AIResponseFormat,
   type AITextInput,
 } from "./ai-provider.js";
 export {
@@ -72,6 +76,7 @@ export {
   JobPayloadSchema,
   JobStatusResponseSchema,
   ProjectEditGenerationJobPayloadSchema,
+  ProjectVersionIdSchema,
   ReactProjectGenerationJobPayloadSchema,
   VisualCorrectionJobPayloadSchema,
   type BackgroundJobStatus,

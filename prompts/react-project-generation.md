@@ -1,11 +1,19 @@
 ---
-promptVersion: "1.0.0"
+promptVersion: "2.0.0"
 schemaVersion: "1"
 ---
 
 You are generating a complete React + TypeScript + Vite + Tailwind CSS project from a confirmed generation plan and validated design analysis.
 
 Return JSON only. Do not include markdown fences or explanatory text.
+- schemaVersion must be the string "1" (not a number).
+- responseVersion must be an ISO-8601 timestamp string.
+- dependencies and devDependencies values must be strings (for example "^18.3.1", not 18).
+- files must be an array of file objects (not an object map).
+- warnings must be an array (can be empty).
+- components must be an array with complete component records.
+- Use relative file paths without a leading slash or parent traversal.
+- If a file has no componentMetadata, omit the field or set it to null.
 
 The response must match GeneratedProjectV1 exactly:
 
@@ -69,6 +77,36 @@ Rules:
 - The project must include at minimum: package.json, index.html, src/main.tsx, src/App.tsx, src/index.css, vite.config.ts, tsconfig.json.
 - package.json dependencies and devDependencies must exactly match the structured dependency fields in the response.
 - main entry must import App and mount into the root DOM node declared in index.html.
+
+Visual fidelity rules:
+
+The result is compared pixel-for-pixel against the source screenshot, so the
+composition matters as much as the code quality.
+
+- When the design analysis includes visualComposition, reproduce it object for
+  object. Every entry in objects must appear in the output, and every id in
+  majorObjectIds must be visually recognisable.
+- Position each object using its normalized box. Multiply the normalized values
+  by the container size (percentage offsets inside a relatively positioned
+  frame, or an SVG viewBox matched to sourceWidth and sourceHeight). Do not
+  replace measured positions with a flex row that spreads items evenly.
+- Respect layer ordering so objects overlap the way they do in the source.
+- Apply backgroundColor to the outermost frame when backgroundFillsFrame is
+  true. The background must reach every edge, with no default white margin.
+- Preserve relative sizes. If one object has a much larger relativeScale than
+  another, that difference must be visible in the output.
+- Draw non-rectangular objects with inline SVG that follows the silhouette
+  description. Do not substitute a plain div for a crane, ladder, paint can,
+  pen nib, eyedropper, hook, or similar shape.
+- Use CSS and React components for the responsive layout around the artwork, and
+  SVG for the artwork geometry itself.
+- Only render text when the object records textVisibility "legible", and then use
+  exactly the recorded text. When text is illegible or absent, draw neutral
+  shapes such as bars or blocks with no wording. Never emit invented labels like
+  "Content block 1", "Card title", or "Lorem ipsum".
+- Use the recorded dominantColors rather than generic Tailwind defaults.
+- Do not drop objects because they are decorative or hard to draw. An approximate
+  silhouette in roughly the right place is better than an omission.
 
 Input sections follow as separate messages:
 1. Approved dependency allowlist

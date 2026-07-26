@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GenerationStatusResponse } from "@reactify/generation-contracts";
 import { isAwaitingSandboxValidation } from "../../lib/generation-api";
 import { GeneratedCodeViewer } from "../generated-project/GeneratedCodeViewer";
@@ -14,6 +14,15 @@ import { SandpackWorkspace } from "./SandpackWorkspace";
 import { usePreviewStore } from "./previewStore";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
 import { getSandpackDependencies, toSandpackFiles } from "./sandpackFileAdapter";
+import { SandpackMountLogger } from "./SandpackMountLogger";
+import { SandpackConnectionMonitor } from "./SandpackConnectionMonitor";
+import { PreviewUnavailableBanner } from "./PreviewUnavailableBanner";
+import { getSandpackBundlerUrl } from "./sandpackConfig";
+import { isSandpackPreviewEnabled, shouldLoadSandpackPreviewFiles } from "./previewEligibility";
+import { resolveSandpackTemplate } from "./resolveSandpackTemplate";
+import { SandpackTemplateErrorPanel } from "./SandpackTemplateErrorPanel";
+import { logSandbox } from "./sandboxLogger";
+import type { SandpackSetup } from "@codesandbox/sandpack-react";
 
 interface PreviewWorkspaceProps {
   status: GenerationStatusResponse;
@@ -26,6 +35,7 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
   const { selectedPath, fileContent, isLoadingFile, fileError, selectFile } = useGeneratedProject(status.id);
   const [activeTab, setActiveTab] = useState<"screenshot" | "code" | "preview" | "diagnostics">("code");
   const [loadedFiles, setLoadedFiles] = useState<Array<{ path: string; content: string }> | null>(null);
+  const [compiledStylesheet, setCompiledStylesheet] = useState<string | null>(null);
   const reloadToken = usePreviewStore((state) => state.reloadToken);
   const reloadPreview = usePreviewStore((state) => state.reloadPreview);
   const resetPreviewReport = usePreviewStore((state) => state.resetReportState);
@@ -35,9 +45,46 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
   const selectedDiagnosticPath = usePreviewStore((state) => state.selectedDiagnosticPath);
   const resetPreview = usePreviewStore((state) => state.reset);
   const setPhase = usePreviewStore((state) => state.setPhase);
+  const setExportEligible = usePreviewStore((state) => state.setExportEligible);
+  const setComparisonCaptureReady = usePreviewStore((state) => state.setComparisonCaptureReady);
+  const setCompilationValidated = usePreviewStore((state) => state.setCompilationValidated);
+  const setRuntimeValidated = usePreviewStore((state) => state.setRuntimeValidated);
+  const setPreviewSignals = usePreviewStore((state) => state.setPreviewSignals);
+  const setTemplateErrors = usePreviewStore((state) => state.setTemplateErrors);
+
+  const awaitingValidation = isAwaitingSandboxValidation(status);
+  const shouldLoadPreviewFiles = shouldLoadSandpackPreviewFiles(status);
+  const previewEnabled = isSandpackPreviewEnabled(status);
+
+  useEffect(() => {
+    setExportEligible(status.exportAllowed);
+    setComparisonCaptureReady(
+      Boolean(status.sandboxValidation?.compilation.success && status.sandboxValidation?.runtime.success),
+    );
+    setCompilationValidated(status.sandboxValidation?.compilation.success === true);
+    setRuntimeValidated(status.sandboxValidation?.runtime.success === true);
+  }, [
+    setComparisonCaptureReady,
+    setCompilationValidated,
+    setExportEligible,
+    setRuntimeValidated,
+    status.exportAllowed,
+    status.sandboxValidation,
+  ]);
+
+  useEffect(() => {
+    if (awaitingValidation) {
+      setActiveTab("preview");
+    }
+  }, [awaitingValidation, status.projectHash]);
+
+  const loadedProjectHashRef = useRef<string | null>(null);
 
   useEffect(() => {
     resetPreview();
+    loadedProjectHashRef.current = null;
+    setLoadedFiles(null);
+    setCompiledStylesheet(null);
   }, [resetPreview, status.id]);
 
   useEffect(() => {
@@ -47,11 +94,17 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
 
     resetPreviewReport();
     reloadPreview();
+    loadedProjectHashRef.current = null;
     setLoadedFiles(null);
+    setCompiledStylesheet(null);
   }, [reloadPreview, resetPreviewReport, status.projectHash, status.repair?.clientRevalidationRequired]);
 
   useEffect(() => {
-    if (!project || !isAwaitingSandboxValidation(status)) {
+    if (!status.projectHash || !shouldLoadPreviewFiles) {
+      return;
+    }
+
+    if (loadedProjectHashRef.current === status.projectHash) {
       return;
     }
 
@@ -59,13 +112,26 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
     setPhase("preparing");
 
     void loadProjectFilesForSandpack(status.id)
-      .then((files) => {
+      .then(({ files, compiledStylesheet: stylesheet }) => {
         if (!cancelled) {
+          loadedProjectHashRef.current = status.projectHash ?? null;
+          logSandbox("files_loaded", {
+            generationId: status.id,
+            fileCount: files.length,
+            compiledStylesheet: Boolean(stylesheet),
+          });
           setLoadedFiles(files);
+          setCompiledStylesheet(stylesheet);
+          setPreviewSignals({ filesLoaded: files.length > 0 });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
+          logSandbox("files_load_failed", {
+            generationId: status.id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          setPreviewSignals({ filesLoaded: false });
           setPhase("report_failed");
         }
       });
@@ -73,7 +139,7 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
     return () => {
       cancelled = true;
     };
-  }, [project, setPhase, status, status.projectHash]);
+  }, [setPhase, setPreviewSignals, shouldLoadPreviewFiles, status.id, status.projectHash]);
 
   useEffect(() => {
     if (selectedDiagnosticPath) {
@@ -81,25 +147,63 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
     }
   }, [selectFile, selectedDiagnosticPath]);
 
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const sandpackProject = useMemo(() => {
-    if (!project || !loadedFiles) {
+    const currentProject = projectRef.current;
+    if (!currentProject || !loadedFiles || !status.projectHash) {
+      return null;
+    }
+
+    const contentByPath = new Map(loadedFiles.map((file) => [file.path, file.content]));
+
+    return {
+      ...currentProject,
+      files: currentProject.files.map((file) => ({
+        ...file,
+        content: contentByPath.get(file.path) ?? "",
+      })),
+    };
+  }, [loadedFiles, status.projectHash]);
+
+  const sandpackFiles = useMemo(
+    () =>
+      sandpackProject
+        ? toSandpackFiles(sandpackProject, { activePath: selectedPath, compiledStylesheet })
+        : null,
+    [sandpackProject, selectedPath, compiledStylesheet],
+  );
+
+  const templateResolution = useMemo(
+    () => (sandpackProject ? resolveSandpackTemplate(sandpackProject, { compiledStylesheet }) : null),
+    [compiledStylesheet, sandpackProject],
+  );
+
+  useEffect(() => {
+    setTemplateErrors(templateResolution && !templateResolution.ok ? templateResolution.errors : []);
+  }, [setTemplateErrors, templateResolution]);
+
+  const sandpackCustomSetup = useMemo(() => {
+    if (!sandpackProject || !templateResolution?.ok) {
       return null;
     }
 
     return {
-      ...project,
-      files: project.files.map((file) => ({
-        ...file,
-        content: loadedFiles.find((item) => item.path === file.path)?.content ?? "",
-      })),
+      entry: templateResolution.template.entry,
+      // Explicit, bundler-supported preset. Sandpack's own `react-ts` template maps to
+      // the legacy `create-react-app` environment, which the v2 bundler does not know.
+      environment: templateResolution.template.preset as SandpackSetup["environment"],
+      dependencies: {
+        ...getSandpackDependencies(sandpackProject),
+        ...templateResolution.template.dependencies,
+      },
     };
-  }, [loadedFiles, project]);
+  }, [sandpackProject, templateResolution]);
 
   if (!project) {
     return null;
   }
-
-  const previewEnabled = Boolean(sandpackProject) && (isAwaitingSandboxValidation(status) || status.sandboxValidation);
 
   return (
     <section className="space-y-6" aria-labelledby="preview-workspace-heading">
@@ -166,18 +270,35 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
           </div>
         </section>
 
-        <section className={`space-y-4 ${activeTab === "preview" || activeTab === "diagnostics" ? "block" : "hidden xl:block"}`}>
-          {previewEnabled && sandpackProject ? (
+        <section
+          className={`space-y-4 ${
+            awaitingValidation || activeTab === "preview" || activeTab === "diagnostics"
+              ? "block"
+              : "hidden xl:block"
+          }`}
+        >
+          {templateResolution && !templateResolution.ok ? (
+            <SandpackTemplateErrorPanel errors={templateResolution.errors} />
+          ) : null}
+          {previewEnabled && sandpackProject && sandpackFiles && sandpackCustomSetup ? (
             <SandpackProvider
               key={`provider-${status.id}-${status.projectHash ?? "none"}-${reloadToken}`}
-              template="react-ts"
-              files={toSandpackFiles(sandpackProject, { activePath: selectedPath })}
-              customSetup={{
-                entry: `/${sandpackProject.entryFile.replace(/^\/+/, "")}`,
-                dependencies: getSandpackDependencies(sandpackProject),
+              files={sandpackFiles}
+              customSetup={sandpackCustomSetup}
+              options={{
+                autorun: true,
+                recompileMode: "immediate",
+                recompileDelay: 300,
+                bundlerURL: getSandpackBundlerUrl(),
               }}
-              options={{ autorun: true, recompileMode: "immediate", recompileDelay: 300 }}
             >
+              <SandpackMountLogger
+                generationId={status.id}
+                projectHash={status.projectHash}
+                entryFile={sandpackProject.entryFile}
+              />
+              <SandpackConnectionMonitor enabled />
+              <PreviewUnavailableBanner />
               <SandpackWorkspace
                 preview={
                   <SandpackPreviewPanel
@@ -202,9 +323,11 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
                 />
               ) : null}
             </SandpackProvider>
-          ) : (
+          ) : templateResolution && !templateResolution.ok ? null : (
             <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-300">
-              Live preview will appear when sandbox validation starts.
+              {shouldLoadPreviewFiles
+                ? "Loading project files for live preview…"
+                : "Live preview will appear when sandbox validation starts."}
             </div>
           )}
         </section>

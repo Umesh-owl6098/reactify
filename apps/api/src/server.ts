@@ -20,6 +20,7 @@ import { registerRepairRoutes } from "./routes/repairs.js";
 import { registerExportRoutes } from "./routes/exports.js";
 import { registerEditRoutes, registerVersionRoutes } from "./routes/edits.js";
 import { ExportService } from "./lib/export/ExportService.js";
+import { ExportArtifactStore } from "./lib/export/exportArtifactStore.js";
 import { EditService } from "./lib/edit/EditService.js";
 import { VisualComparisonService } from "./lib/visual-comparison/VisualComparisonService.js";
 import { ComparisonArtifactStore } from "./lib/visual-comparison/comparisonArtifactStore.js";
@@ -63,6 +64,8 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   await storage.ensureReady();
   const artifactStore = new ComparisonArtifactStore(comparisonStorageDir);
   await artifactStore.ensureReady();
+  const exportArtifactStore = new ExportArtifactStore(paths.exportStorageDir);
+  await exportArtifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
   const imageRepository = new ImageRepository(prisma);
@@ -94,7 +97,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     usageService = createUsageService(env, new UsageRepository(prisma));
   }
 
-  const exportService = ExportService.fromEnv(env);
+  const exportService = ExportService.fromEnv(env, exportArtifactStore);
   const editService =
     options.editService ??
     EditService.fromDeps({
@@ -123,6 +126,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
         editService,
         exportService,
         visualComparisonService,
+        loadGenerationById: (generationId) => persistence.generations.findById(generationId),
       },
       usageService,
     );
@@ -182,6 +186,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     imageRepository,
     persistence ?? undefined,
     jobs?.jobService,
+    prisma,
   );
   await registerRepairRoutes(
     app,
@@ -196,6 +201,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     exportService,
     authServices.authorizationService,
     jobs?.jobService,
+    persistence ?? undefined,
   );
   await registerEditRoutes(
     app,
@@ -203,14 +209,22 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     editService,
     authServices.authorizationService,
     jobs?.jobService,
+    persistence ?? undefined,
   );
-  await registerVersionRoutes(app, pipeline.store, editService, authServices.authorizationService);
+  await registerVersionRoutes(
+    app,
+    pipeline.store,
+    editService,
+    authServices.authorizationService,
+    persistence ?? undefined,
+  );
   await registerVisualComparisonRoutes(
     app,
     pipeline.store,
     visualComparisonService,
     authServices.authorizationService,
     jobs?.jobService,
+    persistence ?? undefined,
   );
 
   if (jobs) {

@@ -1,6 +1,8 @@
 import type { AIProvider, LoadPromptFn } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { resolveFeatureFlags } from "../env.js";
+import { resolveActiveModel } from "../providers/ai-provider-config.js";
+import { resolveMockFailureStage } from "./mock-failure-stage.js";
 import { defaultLoadPrompt } from "../prompts/loader.js";
 import { createAIProvider } from "../providers/providerFactory.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
@@ -36,7 +38,7 @@ export function createPipelineServices(
   const aiProvider = options.aiProvider ?? createAIProvider(options.env);
   const loadPrompt = options.loadPrompt ?? defaultLoadPrompt;
   const aiConfig = {
-    model: options.env.ANTHROPIC_MODEL,
+    model: resolveActiveModel(options.env),
     temperature: options.env.AI_TEMPERATURE,
     maxTokens: options.env.AI_MAX_TOKENS,
     timeoutMs: options.env.AI_TIMEOUT_MS,
@@ -51,6 +53,7 @@ export function createPipelineServices(
     loadPrompt,
     aiConfig,
     repairConfig,
+    mockFailureStage: resolveMockFailureStage(options.env.MOCK_AI_FAILURE_STAGE),
   });
 
   return {

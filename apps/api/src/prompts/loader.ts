@@ -11,6 +11,7 @@ export function loadPrompt(
     | "design-analysis"
     | "generation-plan"
     | "react-project-generation"
+    | "react-project-generation-repair"
     | "generation"
     | "repair"
     | "project-repair"

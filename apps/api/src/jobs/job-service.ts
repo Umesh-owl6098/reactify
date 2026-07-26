@@ -10,6 +10,8 @@ import { JobRepository } from "./job-repository.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { CANCELLABLE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from "./job-types.js";
 import { syncGenerationForJobStart } from "./generation-sync.js";
+import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
+import { logError, logEvent } from "../lib/structured-log.js";
 
 export interface EnqueueJobParams {
   generationId: string;
@@ -43,67 +45,102 @@ export class JobService {
   async enqueue(params: EnqueueJobParams): Promise<{ job: JobAcceptedResponse; created: boolean }> {
     const payload = validateJobPayloadForEnqueue(params.jobType, params.payload);
     const record = this.store.get(params.generationId);
+    let jobId: string | null = null;
+    let reservationCreated = false;
 
-    const { job, created } = await this.repository.enqueue({
-      generationId: params.generationId,
-      ownerId: params.ownerId,
-      jobType: params.jobType,
-      payload,
-      idempotencyKey: params.idempotencyKey,
-      requestHash: params.requestHash,
-      parentJobId: params.parentJobId,
-      maxAttempts: maxAttemptsForJobType(this.config, params.jobType),
-    });
+    try {
+      const { job, created } = await this.repository.enqueue({
+        generationId: params.generationId,
+        ownerId: params.ownerId,
+        jobType: params.jobType,
+        payload,
+        idempotencyKey: params.idempotencyKey,
+        requestHash: params.requestHash,
+        parentJobId: params.parentJobId,
+        maxAttempts: maxAttemptsForJobType(this.config, params.jobType),
+      });
+      jobId = job.id;
 
-    let reservationMeta:
-      | {
-          estimatedAiCostUsd: number;
-          reservedAiCostUsd: number;
-          estimatedTokens: number;
-          usageLimitWarning?: string;
-        }
-      | undefined;
+      let reservationMeta:
+        | {
+            estimatedAiCostUsd: number;
+            reservedAiCostUsd: number;
+            estimatedTokens: number;
+            usageLimitWarning?: string;
+          }
+        | undefined;
 
-    if (created && this.usageService?.isMeteredJobType(params.jobType)) {
-      try {
+      if (created && this.usageService?.isMeteredJobType(params.jobType)) {
         const reservation = await this.usageService.reserveForJob({
           ownerId: params.ownerId,
           generationId: params.generationId,
           jobId: job.id,
           operationType: params.jobType,
           attemptNumber: 1,
-          provider: this.env.AI_PROVIDER === "mock" ? "mock" : "anthropic",
-          model: this.env.ANTHROPIC_MODEL,
+          provider: resolveUsageProviderName(this.env),
+          model: resolveActiveModel(this.env),
           estimate: {
             operationType: params.jobType,
             maxOutputTokens: this.env.AI_MAX_TOKENS,
           },
         });
+        reservationCreated = true;
         reservationMeta = {
           estimatedAiCostUsd: microsToUsd(reservation.estimatedCostMicrosUsd),
           reservedAiCostUsd: microsToUsd(reservation.estimatedCostMicrosUsd),
           estimatedTokens: reservation.estimatedInputTokens + reservation.estimatedOutputTokens,
           usageLimitWarning: reservation.warningMessage,
         };
-      } catch (error) {
-        await this.repository.cancelJob(job.id);
-        throw error;
       }
-    }
 
-    if (record) {
-      syncGenerationForJobStart(record, params.jobType);
-      await this.store.persist(record);
-    }
+      if (record) {
+        syncGenerationForJobStart(record, params.jobType);
+        await this.store.persist(record);
+      }
 
-    if (this.config.inlineExecution && this.inlineDispatcher) {
-      void this.inlineDispatcher(job.id);
-    }
+      if (this.config.inlineExecution && this.inlineDispatcher) {
+        logEvent("job_inline_dispatch_scheduled", {
+          jobId: job.id,
+          generationId: params.generationId,
+          jobType: params.jobType,
+        });
+        void this.inlineDispatcher(job.id).catch((error) => {
+          logError("job_inline_dispatch_failed", error, {
+            jobId: job.id,
+            generationId: params.generationId,
+            jobType: params.jobType,
+          });
+        });
+      }
 
-    return {
-      job: this.toAcceptedResponse(job, reservationMeta),
-      created,
-    };
+      logEvent("job_enqueue_completed", {
+        jobId: job.id,
+        generationId: params.generationId,
+        jobType: params.jobType,
+        status: job.status,
+        created,
+        inlineExecution: this.config.inlineExecution,
+      });
+
+      return {
+        job: this.toAcceptedResponse(job, reservationMeta),
+        created,
+      };
+    } catch (error) {
+      if (jobId) {
+        await this.repository.cancelJob(jobId);
+        if (reservationCreated && this.usageService?.isMeteredJobType(params.jobType)) {
+          await this.usageService.releaseReservationForJob(jobId, 1);
+        }
+      }
+
+      logError("job_enqueue_failed", error, {
+        generationId: params.generationId,
+        jobType: params.jobType,
+        jobId,
+      });
+      throw error;
+    }
   }
 
   toAcceptedResponse(

@@ -104,7 +104,7 @@ export function evaluateVisualComparisonEligibility(
   if (record.awaitingPlanConfirmation) {
     return {
       ok: false,
-      reason: "generation_in_progress",
+      reason: "awaiting_plan_confirmation",
       errorCode: ErrorCode.INVALID_GENERATION_STATE,
       message: "Visual comparison is unavailable while awaiting plan confirmation.",
     };
@@ -158,11 +158,20 @@ export function evaluateVisualComparisonEligibility(
     };
   }
 
+  if (record.awaitingSandboxValidation) {
+    return {
+      ok: false,
+      reason: "awaiting_sandbox_validation",
+      errorCode: ErrorCode.PREVIEW_NOT_READY,
+      message: "Open the live preview so Sandpack can finish compilation and runtime validation.",
+    };
+  }
+
   const sandboxValid =
     record.sandboxValidation?.compilation.success === true &&
     record.sandboxValidation?.runtime.success === true &&
     record.sandboxValidation.projectHash === record.projectHash;
-  if (!sandboxValid || record.awaitingSandboxValidation) {
+  if (!sandboxValid) {
     return {
       ok: false,
       reason: "preview_not_ready",

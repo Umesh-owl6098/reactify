@@ -8,11 +8,12 @@ import {
 } from "@reactify/generation-contracts";
 import { ErrorCode, JobAcceptedResponseSchema, type APIErrorBody } from "@reactify/shared";
 import { ExportService } from "../lib/export/ExportService.js";
-import { getActiveProjectVersion } from "../lib/export/exportEligibility.js";
 import type { GenerationStore } from "../pipeline/store.js";
 import type { AuthorizationService } from "../auth/AuthorizationService.js";
 import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
 import type { JobService } from "../jobs/job-service.js";
+import type { PersistenceService } from "../persistence/PersistenceService.js";
 
 function sendError(
   reply: FastifyReply,
@@ -36,10 +37,34 @@ export async function registerExportRoutes(
   exportService: ExportService,
   authorization: AuthorizationService,
   jobService?: JobService,
+  persistence?: PersistenceService,
 ): Promise<void> {
+  const refreshOwnedGeneration = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    generationId: string,
+  ) => {
+    const owned = requireOwnedGeneration(authorization, request, reply, generationId, sendError);
+    if (!owned || !persistence) {
+      return owned;
+    }
+
+    const refreshed = await hydrateOwnedGenerationRecord({
+      store,
+      persistence,
+      generationId,
+      ownerId: request.auth!.user.id,
+    });
+    if (!refreshed) {
+      sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return null;
+    }
+    return refreshed;
+  };
+
   app.post("/api/v1/generations/:id/exports", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -119,7 +144,7 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -133,7 +158,7 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports/:exportId", async (request, reply) => {
     const { id, exportId } = request.params as { id: string; exportId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -152,26 +177,25 @@ export async function registerExportRoutes(
 
   app.get("/api/v1/generations/:id/exports/:exportId/download", async (request, reply) => {
     const { id, exportId } = request.params as { id: string; exportId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
 
-    const exportRecord = exportService.getExport(record, exportId);
-    if (!exportRecord || exportRecord.status !== "ready" || !exportRecord.zipBuffer) {
-      return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Export download is not available.");
+    const download = await exportService.resolveDownload(record, exportId);
+    if (!download.ok) {
+      return sendError(reply, request, download.statusCode, download.errorCode, download.message);
     }
 
-    const activeVersion = getActiveProjectVersion(record);
-    if (!activeVersion || exportRecord.versionId !== activeVersion.versionId) {
-      return sendError(reply, request, 409, ErrorCode.INVALID_GENERATION_STATE, "Export belongs to a stale project version.");
+    if (download.reconstructed) {
+      void store.persist(record);
     }
 
     return reply
       .header("Content-Type", "application/zip")
-      .header("Content-Disposition", `attachment; filename="${exportRecord.filename}"`)
-      .header("Content-Length", exportRecord.zipBuffer.byteLength)
+      .header("Content-Disposition", `attachment; filename="${download.filename}"`)
+      .header("Content-Length", download.buffer.byteLength)
       .header("Cache-Control", "no-store")
-      .send(exportRecord.zipBuffer);
+      .send(download.buffer);
   });
 }

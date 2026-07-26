@@ -1,6 +1,7 @@
 import type { Env } from "./env.js";
 import { EditService } from "./lib/edit/EditService.js";
 import { ExportService } from "./lib/export/ExportService.js";
+import { ExportArtifactStore } from "./lib/export/exportArtifactStore.js";
 import { ImageStorage } from "./lib/imageStorage.js";
 import { VisualComparisonService } from "./lib/visual-comparison/VisualComparisonService.js";
 import { ComparisonArtifactStore } from "./lib/visual-comparison/comparisonArtifactStore.js";
@@ -22,6 +23,8 @@ export async function buildWorker(env: Env) {
   await storage.ensureReady();
   const artifactStore = new ComparisonArtifactStore(paths.comparisonStorageDir);
   await artifactStore.ensureReady();
+  const exportArtifactStore = new ExportArtifactStore(paths.exportStorageDir);
+  await exportArtifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
   await connectDatabase(prisma);
@@ -46,7 +49,7 @@ export async function buildWorker(env: Env) {
   const pipeline = createPipelineServices(storage, { env, aiProvider });
   const persistence = await initializePersistence(env, pipeline.store);
 
-  const exportService = ExportService.fromEnv(env);
+  const exportService = ExportService.fromEnv(env, exportArtifactStore);
   const editService = EditService.fromDeps({
     aiProvider,
     loadPrompt: defaultLoadPrompt,
@@ -69,6 +72,7 @@ export async function buildWorker(env: Env) {
       editService,
       exportService,
       visualComparisonService,
+      loadGenerationById: (generationId) => persistence.generations.findById(generationId),
     },
     usageService,
     paths.workerPresenceFile,

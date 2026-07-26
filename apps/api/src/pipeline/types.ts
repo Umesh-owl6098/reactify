@@ -43,6 +43,7 @@ export interface PipelineState {
   analysisMetadata?: import("@reactify/generation-contracts").AnalysisMetadata;
   planMetadata?: PlanMetadata;
   projectMetadata?: ProjectMetadata;
+  visualFidelity?: import("../lib/visual-fidelity/visualFidelityValidator.js").VisualFidelityReport | null;
   schemaValidation?: SchemaValidationResult;
   staticValidation?: StaticValidationResult;
   projectHash?: string;

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { JobStatusResponse } from "@reactify/shared";
 import { fetchGenerationJobs, fetchJobStatus, isTerminalJobStatus } from "./job-api.js";
+import { pickActiveJob } from "./pickActiveJob.js";
 import { useJobStore } from "./jobStore.js";
+import { useGenerationStore } from "../generation/generationStore.js";
 
 const ACTIVE_POLL_MS = 1500;
 const WAITING_POLL_MS = 4000;
@@ -22,15 +24,6 @@ function pollIntervalFor(status: JobStatusResponse | null, hidden: boolean): num
   }
 
   return ACTIVE_POLL_MS;
-}
-
-function pickActiveJob(jobs: JobStatusResponse[]): JobStatusResponse | null {
-  return (
-    jobs.find((job) => ["queued", "claimed", "running", "retry_scheduled"].includes(job.status)) ??
-    jobs.find((job) => job.status === "waiting_for_client") ??
-    jobs.find((job) => ["failed", "dead_letter"].includes(job.status)) ??
-    null
-  );
 }
 
 export function useJob(jobId: string | null) {
@@ -103,7 +96,6 @@ export function useJob(jobId: string | null) {
 export function useGenerationJobs(generationId: string | null) {
   const upsertJob = useJobStore((state) => state.upsertJob);
   const setActiveJobId = useJobStore((state) => state.setActiveJobId);
-  const jobs = useJobStore((state) => Object.values(state.jobs));
 
   const refresh = useCallback(async () => {
     if (!generationId) {
@@ -116,7 +108,16 @@ export function useGenerationJobs(generationId: string | null) {
         upsertJob(job);
       }
 
-      const active = pickActiveJob(response.items);
+      const generationStatus = useGenerationStore.getState().status;
+      const generationContext =
+        generationStatus?.id === generationId
+          ? {
+              status: generationStatus.status,
+              awaitingPlanConfirmation: generationStatus.awaitingPlanConfirmation,
+              awaitingSandboxValidation: generationStatus.awaitingSandboxValidation,
+            }
+          : null;
+      const active = pickActiveJob(response.items, generationContext);
       setActiveJobId(active?.jobId ?? null);
     } catch {
       // Job polling errors should not blank the generation page.
@@ -139,5 +140,5 @@ export function useGenerationJobs(generationId: string | null) {
     };
   }, [generationId, refresh, setActiveJobId]);
 
-  return { jobs, refresh };
+  return { refresh };
 }

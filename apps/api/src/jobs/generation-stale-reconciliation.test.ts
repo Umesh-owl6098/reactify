@@ -19,6 +19,7 @@ function createStore() {
 function mockRepository(overrides: Partial<JobRepository>): JobRepository {
   return {
     findRelevantJobForReconciliation: vi.fn(),
+    requeueStaleJob: vi.fn().mockResolvedValue(false),
     ...overrides,
   } as unknown as JobRepository;
 }
@@ -37,6 +38,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     expect(store.get(record.id)?.status).toBe("Analyzing");
@@ -55,6 +57,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     const updated = store.get(record.id);
@@ -82,6 +85,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     expect(store.get(record.id)?.status).toBe("Analyzing");
@@ -103,6 +107,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     expect(store.get(record.id)?.status).toBe("Analyzing");
@@ -124,6 +129,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     expect(store.get(record.id)?.status).toBe("Analyzing");
@@ -145,6 +151,7 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     expect(store.get(record.id)?.status).toBe("Planning");
@@ -169,11 +176,65 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     const updated = store.get(record.id);
     expect(updated?.status).toBe("Failed");
     expect(updated?.errors.at(-1)?.code).toBe(ErrorCode.JOB_STALLED);
+  });
+
+  it("does not fail analyzing generations while the chained plan job is pending", async () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    record.status = "Analyzing";
+    record.updatedAt = new Date().toISOString();
+
+    const repository = mockRepository({
+      findRelevantJobForReconciliation: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "analysis-job",
+          status: "completed",
+          updatedAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          id: "plan-job",
+          status: "queued",
+          updatedAt: new Date(),
+        }),
+    });
+
+    await reconcileStaleGenerationState(record.id, store, repository, {
+      staleGenerationThresholdMs: 120_000,
+      jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
+    });
+
+    expect(store.get(record.id)?.status).toBe("Analyzing");
+  });
+
+  it("does not fail analyzing generations immediately after design analysis completes", async () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    record.status = "Analyzing";
+    record.updatedAt = new Date().toISOString();
+
+    const repository = mockRepository({
+      findRelevantJobForReconciliation: vi.fn().mockResolvedValue({
+        id: "analysis-job",
+        status: "completed",
+        updatedAt: new Date(),
+      }),
+    });
+
+    await reconcileStaleGenerationState(record.id, store, repository, {
+      staleGenerationThresholdMs: 120_000,
+      jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
+    });
+
+    expect(store.get(record.id)?.status).toBe("Analyzing");
   });
 
   it("syncs terminal job failures back to the generation after grace", async () => {
@@ -195,10 +256,82 @@ describe("reconcileStaleGenerationState", () => {
     await reconcileStaleGenerationState(record.id, store, repository, {
       staleGenerationThresholdMs: 120_000,
       jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
     });
 
     const updated = store.get(record.id);
     expect(updated?.status).toBe("Failed");
     expect(updated?.errors.at(-1)?.code).toBe(ErrorCode.AI_PROVIDER_NOT_CONFIGURED);
+  });
+
+  it("requeues stale running jobs with expired heartbeats during generation GET reconciliation", async () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    record.status = "Analyzing";
+    record.updatedAt = new Date().toISOString();
+
+    const requeueStaleJob = vi.fn().mockResolvedValue(true);
+    const repository = mockRepository({
+      findRelevantJobForReconciliation: vi.fn().mockResolvedValue({
+        id: "job-id",
+        status: "running",
+        lastHeartbeatAt: new Date(Date.now() - 300_000),
+        updatedAt: new Date(Date.now() - 300_000),
+      }),
+      requeueStaleJob,
+    });
+
+    await reconcileStaleGenerationState(record.id, store, repository, {
+      staleGenerationThresholdMs: 120_000,
+      jobMissingGraceMs: 60_000,
+      lockTtlMs: 120_000,
+    });
+
+    expect(requeueStaleJob).toHaveBeenCalledWith("job-id");
+    expect(store.get(record.id)?.status).toBe("Analyzing");
+  });
+
+  it("re-enqueues automatic_repair when sandbox validation succeeded but preview_ready never ran", async () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    record.status = "Repairing";
+    record.repairStatus = "succeeded";
+    record.sandboxValidation = {
+      projectHash: "abc123",
+      validatedAt: new Date().toISOString(),
+      compilation: { success: true, durationMs: 1, errors: [], warnings: [] },
+      runtime: { success: true, durationMs: 1, errors: [], warnings: [] },
+    };
+    record.updatedAt = new Date(Date.now() - 300_000).toISOString();
+
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const repository = mockRepository({
+      findRelevantJobForReconciliation: vi.fn().mockResolvedValue({
+        id: "repair-job",
+        status: "completed",
+        updatedAt: new Date(Date.now() - 300_000),
+      }),
+      findActiveJobByType: vi.fn().mockResolvedValue(null),
+    });
+
+    await reconcileStaleGenerationState(
+      record.id,
+      store,
+      repository,
+      {
+        staleGenerationThresholdMs: 120_000,
+        jobMissingGraceMs: 60_000,
+        lockTtlMs: 120_000,
+      },
+      { enqueue },
+    );
+
+    expect(enqueue).toHaveBeenCalledWith({
+      generationId: record.id,
+      ownerId: "owner",
+      jobType: "automatic_repair",
+      payload: { generationId: record.id },
+      idempotencyKey: `finish-preview-${record.id}`,
+    });
   });
 });

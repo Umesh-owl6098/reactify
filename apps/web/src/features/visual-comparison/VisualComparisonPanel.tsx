@@ -15,7 +15,7 @@ interface VisualComparisonPanelProps {
 }
 
 export function VisualComparisonPanel({ status, onRefreshStatus }: VisualComparisonPanelProps) {
-  const { store, startComparison, submitScreenshot, confirmCorrection, loadHistory } = useVisualComparison(
+  const { store, startComparison, submitScreenshot, retryCapture, handleCaptureError, confirmCorrection, loadHistory } = useVisualComparison(
     status,
     onRefreshStatus,
   );
@@ -86,11 +86,35 @@ export function VisualComparisonPanel({ status, onRefreshStatus }: VisualCompari
         />
       ) : null}
 
+      {store.phase === "failed" && store.error ? (
+        <div className="space-y-2 rounded-lg border border-rose-400/40 bg-rose-500/10 p-3" role="alert">
+          <p className="text-sm text-rose-100">{store.error}</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-rose-300/50 px-3 py-1.5 text-sm text-rose-50"
+              onClick={() => void startComparison()}
+            >
+              Retry comparison
+            </button>
+            {(comparison?.status === "awaiting_capture" || status.previewCaptureRequired) && (
+              <button
+                type="button"
+                className="rounded-lg border border-rose-300/50 px-3 py-1.5 text-sm text-rose-50"
+                onClick={retryCapture}
+              >
+                Retry capture
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {store.phase === "correcting" || store.phase === "awaiting_revalidation" ? (
         <VisualCorrectionProgress phase={store.phase} />
       ) : null}
 
-      {store.error ? (
+      {store.error && store.phase !== "failed" ? (
         <p className="text-sm text-rose-200" role="alert">
           {store.error}
         </p>
@@ -174,8 +198,11 @@ export function VisualComparisonPanel({ status, onRefreshStatus }: VisualCompari
 
       <ScreenshotCaptureController
         status={status}
+        comparisonId={comparison?.comparisonId ?? status.activeComparisonId}
         enabled={Boolean(comparison?.status === "awaiting_capture" || status.previewCaptureRequired)}
+        captureAttempt={store.captureAttempt}
         onCapture={submitScreenshot}
+        onCaptureError={handleCaptureError}
       />
 
       <div>

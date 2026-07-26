@@ -5,7 +5,7 @@ import type { GenerationRecord } from "../../pipeline/types.js";
 import { computeProjectHash } from "../projectHash.js";
 import { EditService } from "./EditService.js";
 import { evaluateEditEligibility } from "./editEligibility.js";
-import { ensureInitialVersion } from "./versionStore.js";
+import { createProjectVersion, ensureInitialVersion } from "./versionStore.js";
 import { testEnv } from "../../test/helpers.js";
 import { defaultLoadPrompt } from "../../prompts/loader.js";
 
@@ -71,6 +71,24 @@ function createReadyRecord(overrides: Partial<GenerationRecord> = {}): Generatio
   ensureInitialVersion(record);
   return record;
 }
+
+describe("project version identity", () => {
+  it("keeps version IDs unique when content returns to a previously seen hash", () => {
+    const record = createReadyRecord();
+    const initial = ensureInitialVersion(record)!;
+    const edited = createProjectVersion({
+      record,
+      project: generatedProjectFixture,
+      source: "natural_language_edit",
+      label: "Same content after rollback",
+      parentVersionId: initial.versionId,
+    });
+
+    expect(edited.projectHash).toBe(initial.projectHash);
+    expect(edited.versionId).not.toBe(initial.versionId);
+    expect(new Set(record.versions.map((version) => version.versionId)).size).toBe(2);
+  });
+});
 
 describe("editEligibility", () => {
   it("allows edits for preview-ready projects", () => {

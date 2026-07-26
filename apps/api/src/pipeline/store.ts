@@ -15,10 +15,12 @@ import { buildVisualComparisonSnapshotFields } from "../lib/visual-comparison/vi
 import { completeEditAfterValidation, getActiveEditClarification, buildLatestEditSummary } from "../lib/edit/EditService.js";
 import { completeVisualCorrectionAfterValidation } from "../lib/visual-comparison/VisualComparisonService.js";
 import { ensureInitialVersion } from "../lib/edit/versionStore.js";
+import { finalizeValidatedRepairVersion } from "../lib/repair/repairVersionFinalization.js";
 import { validatePlanDependencies } from "../lib/allowlist.js";
 import { generationStatusForQueuedJob, JOB_TYPE_TO_STAGE } from "../jobs/generation-sync.js";
 import type { BackgroundJobType } from "../jobs/job-types.js";
 import { isGenerationRetryAllowed } from "../jobs/generation-recovery.js";
+import { logEvent } from "../lib/structured-log.js";
 import type { GenerationRecord, GenerationStoreSnapshot, PipelineState } from "./types.js";
 
 export type GenerationPersistHandler = (record: GenerationRecord) => Promise<void>;
@@ -61,7 +63,7 @@ export class GenerationStore {
     ownerId: string;
     imageId: string;
     projectId?: string;
-    failStage?: PipelineStageName;
+    deferPersist?: boolean;
   }): GenerationRecord {
     const now = new Date().toISOString();
     const record: GenerationRecord = {
@@ -101,7 +103,7 @@ export class GenerationStore {
       sandboxResumeInProgress: false,
       errors: [],
       cancelled: false,
-      failStage: input.failStage,
+      failStage: undefined,
       exports: [],
       exportInProgress: false,
       versions: [],
@@ -125,7 +127,9 @@ export class GenerationStore {
     };
 
     this.records.set(record.id, record);
-    void this.persist(record);
+    if (!input.deferPersist) {
+      void this.persist(record);
+    }
     return record;
   }
 
@@ -276,6 +280,8 @@ export class GenerationStore {
     record.activeStage = stage;
     record.status = "Planning";
     record.awaitingPlanConfirmation = true;
+    record.failStage = undefined;
+    record.manualRetryAllowed = false;
     record.updatedAt = updatedAt;
   }
 
@@ -308,10 +314,13 @@ export class GenerationStore {
   }
 
   applyStateOutputs(record: GenerationRecord, state: PipelineState): void {
+    // A stage that did not produce an output must not erase the one already on
+    // the record; a partial resume would otherwise drop the design analysis or
+    // the project entirely.
     record.outputs = {
-      designAnalysis: state.designAnalysis ?? null,
-      generationPlan: state.generationPlan ?? null,
-      generatedProject: state.generatedProject ?? null,
+      designAnalysis: state.designAnalysis ?? record.outputs.designAnalysis ?? null,
+      generationPlan: state.generationPlan ?? record.outputs.generationPlan ?? null,
+      generatedProject: state.generatedProject ?? record.outputs.generatedProject ?? null,
     };
     record.analysis = state.analysisMetadata ?? null;
     record.plan = state.planMetadata ?? null;
@@ -342,11 +351,33 @@ export class GenerationStore {
 
   pauseForSandboxValidation(record: GenerationRecord, state: PipelineState): void {
     record.pipelineState = state;
+
+    if (state.generatedProject) {
+      record.outputs.generatedProject = state.generatedProject;
+    }
+
+    record.projectHash = state.projectHash ?? record.projectHash;
+
+    const initialVersion = ensureInitialVersion(record);
+    if (initialVersion) {
+      logEvent("initial_project_version_created", {
+        generationId: record.id,
+        activeVersionId: record.activeVersionId,
+        projectHash: record.projectHash,
+        versionNumber: initialVersion.versionNumber,
+      });
+    }
+
     record.awaitingSandboxValidation = true;
     record.status = "Compiling";
     record.activeStage = "sandbox_compilation";
-    record.projectHash = state.projectHash ?? record.projectHash;
     record.updatedAt = new Date().toISOString();
+    logEvent("waiting_for_browser_validation", {
+      generationId: record.id,
+      projectHash: record.projectHash,
+      activeStage: record.activeStage,
+    });
+    void this.persist(record);
   }
 
   pauseForPlanReview(record: GenerationRecord, state: PipelineState): void {
@@ -462,6 +493,14 @@ export class GenerationStore {
       return { ok: false, reason: "hash_mismatch" };
     }
 
+    logEvent("validation_received", {
+      generationId: record.id,
+      projectHash: input.report.projectHash,
+      compilationSuccess: input.report.compilation.success,
+      runtimeSuccess: input.report.runtime.success,
+      compilationDurationMs: input.report.compilation.durationMs,
+    });
+
     const compilationSucceeded = input.report.compilation.success;
     const runtimeSucceeded = compilationSucceeded && input.report.runtime.success;
     const repairRequired = !compilationSucceeded || !runtimeSucceeded;
@@ -495,7 +534,12 @@ export class GenerationStore {
       state.repairStatus = "succeeded";
       record.repairRequired = false;
       record.repairStatus = "succeeded";
+      record.projectHash = input.report.projectHash;
+      if (state.generatedProject) {
+        record.outputs.generatedProject = state.generatedProject;
+      }
       ensureInitialVersion(record);
+      finalizeValidatedRepairVersion(record, input.report.projectHash);
       completeEditAfterValidation(record, true);
       completeVisualCorrectionAfterValidation(record, true);
     } else {
@@ -541,6 +585,17 @@ export class GenerationStore {
         code: "SANDBOX_COMPILATION_FAILED",
         message: "Sandbox compilation reported errors from the browser client.",
       });
+      logEvent("compilation_failed", {
+        generationId: record.id,
+        projectHash: input.report.projectHash,
+        errorCount: input.report.compilation.errors.length,
+      });
+    } else {
+      logEvent("compilation_passed", {
+        generationId: record.id,
+        projectHash: input.report.projectHash,
+        durationMs: input.report.compilation.durationMs,
+      });
     }
 
     if (compilationSucceeded && !runtimeSucceeded) {
@@ -552,6 +607,13 @@ export class GenerationStore {
     }
 
     void this.persist(record);
+    logEvent("validation_accepted", {
+      generationId: record.id,
+      projectHash: input.report.projectHash,
+      runtimeSucceeded,
+      repairRequired,
+      nextStatus: record.status,
+    });
     return { ok: true, record, duplicate: false };
   }
 

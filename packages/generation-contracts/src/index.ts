@@ -11,6 +11,21 @@ export {
   type DesignAnalysisV1,
 } from "./design-analysis.js";
 export {
+  NormalizedBoxSchema,
+  TextVisibilitySchema,
+  VisualCompositionV1Schema,
+  VisualObjectKindSchema,
+  VisualObjectSchema,
+  boxArea,
+  horizontalRegion,
+  majorObjects,
+  type CompositionRegion,
+  type NormalizedBox,
+  type VisualCompositionV1,
+  type VisualObject,
+  type VisualObjectKind,
+} from "./visual-composition.js";
+export {
   CancelGenerationResponseSchema,
   ConfirmPlanRequestSchema,
   ConfirmPlanResponseSchema,

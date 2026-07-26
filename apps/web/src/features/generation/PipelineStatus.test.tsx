@@ -176,4 +176,19 @@ describe("PipelineStatus", () => {
 
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
+
+  it("renders analyzing state when no active job is available", () => {
+    render(
+      <PipelineStatus
+        status={createAnalyzingStatus()}
+        isLoading={false}
+        isPolling={true}
+        error={null}
+        job={null}
+        onRetried={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Analyzing screenshot")).toBeInTheDocument();
+  });
 });

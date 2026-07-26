@@ -1,5 +1,10 @@
 import sharp from "sharp";
 
+/** Aspect ratios within this relative tolerance are treated as matching. */
+const ASPECT_RATIO_TOLERANCE = 0.005;
+
+export type ImageResizeMode = "fill" | "contain";
+
 export interface NormalizedImage {
   width: number;
   height: number;
@@ -11,14 +16,23 @@ export interface NormalizedImage {
     normalizedWidth: number;
     normalizedHeight: number;
     padded: boolean;
+    resizeMode: ImageResizeMode;
     background: "white";
   };
 }
 
+function aspectsMatch(originalWidth: number, originalHeight: number, targetWidth: number, targetHeight: number): boolean {
+  const sourceAspect = originalWidth / originalHeight;
+  const targetAspect = targetWidth / targetHeight;
+  const relativeDelta = Math.abs(sourceAspect - targetAspect) / targetAspect;
+  return relativeDelta <= ASPECT_RATIO_TOLERANCE;
+}
+
 /**
- * Normalize an image to a deterministic canvas size while preserving aspect ratio.
- * Images are flattened onto a white background, resized to fit within the target box,
- * then centered on a fixed canvas of targetWidth x targetHeight.
+ * Normalize an image to a deterministic viewport size for visual comparison.
+ *
+ * - Matching aspect ratio: resize uniformly to exactly fill the target viewport (no padding).
+ * - Differing aspect ratio: contain within the viewport on a neutral white background (centered).
  */
 export async function normalizeImage(
   input: Buffer,
@@ -30,14 +44,32 @@ export async function normalizeImage(
   const originalWidth = metadata.width ?? targetWidth;
   const originalHeight = metadata.height ?? targetHeight;
 
-  const scale = Math.min(targetWidth / originalWidth, targetHeight / originalHeight, 1);
+  if (aspectsMatch(originalWidth, originalHeight, targetWidth, targetHeight)) {
+    const png = await source.resize(targetWidth, targetHeight, { fit: "fill" }).png().toBuffer();
+    const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+
+    return {
+      width: info.width,
+      height: info.height,
+      raw: data,
+      png,
+      metadata: {
+        originalWidth,
+        originalHeight,
+        normalizedWidth: targetWidth,
+        normalizedHeight: targetHeight,
+        padded: false,
+        resizeMode: "fill",
+        background: "white",
+      },
+    };
+  }
+
+  const scale = Math.min(targetWidth / originalWidth, targetHeight / originalHeight);
   const normalizedWidth = Math.max(1, Math.round(originalWidth * scale));
   const normalizedHeight = Math.max(1, Math.round(originalHeight * scale));
 
-  const resized = await source
-    .resize(normalizedWidth, normalizedHeight, { fit: "inside", withoutEnlargement: false })
-    .png()
-    .toBuffer();
+  const resized = await source.resize(normalizedWidth, normalizedHeight, { fit: "inside" }).png().toBuffer();
 
   const left = Math.floor((targetWidth - normalizedWidth) / 2);
   const top = Math.floor((targetHeight - normalizedHeight) / 2);
@@ -66,14 +98,11 @@ export async function normalizeImage(
       originalHeight,
       normalizedWidth,
       normalizedHeight,
-      padded: normalizedWidth !== targetWidth || normalizedHeight !== targetHeight,
+      padded: true,
+      resizeMode: "contain",
       background: "white",
     },
   };
-}
-
-export async function createThumbnail(input: Buffer, maxSize = 320): Promise<Buffer> {
-  return sharp(input).resize(maxSize, maxSize, { fit: "inside", withoutEnlargement: true }).png().toBuffer();
 }
 
 export async function createOverlayImage(

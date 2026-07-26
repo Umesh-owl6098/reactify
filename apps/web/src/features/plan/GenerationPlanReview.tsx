@@ -21,7 +21,20 @@ export function GenerationPlanReview({ status, onConfirmed, onCancelled }: Gener
   const [actionError, setActionError] = useState<string | null>(null);
 
   if (!draftPlan || !originalPlan) {
-    return null;
+    return (
+      <section
+        className="space-y-3 rounded-2xl border border-indigo-400/30 bg-indigo-500/5 p-5 text-left"
+        aria-labelledby="generation-plan-pending-heading"
+        role="status"
+      >
+        <h2 id="generation-plan-pending-heading" className="text-lg font-semibold text-white">
+          Preparing generation plan
+        </h2>
+        <p className="text-sm text-slate-300">
+          The implementation plan is being finalized. This screen will update automatically when plan review is ready.
+        </p>
+      </section>
+    );
   }
 
   const handleConfirm = async () => {

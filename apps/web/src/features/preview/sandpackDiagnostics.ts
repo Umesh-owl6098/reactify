@@ -127,6 +127,19 @@ export function normalizeReactRenderError(message: string, stack?: string): Diag
   };
 }
 
+export function normalizeCompilationTimeoutError(
+  lastStatus: string,
+  timeoutMs: number,
+): Diagnostic {
+  return {
+    code: "SANDBOX_COMPILATION_TIMEOUT",
+    message: `Sandpack compilation did not become ready within ${timeoutMs}ms (last status: ${lastStatus}).`,
+    severity: "error",
+    source: "sandpack",
+    category: "compilation-timeout",
+  };
+}
+
 export function truncateDiagnosticMessage(message: string, maxLength = MAX_MESSAGE_LENGTH): string {
   if (message.length <= maxLength) {
     return message;

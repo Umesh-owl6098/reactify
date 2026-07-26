@@ -17,7 +17,8 @@ export function sendPersistenceError(
           : error.code === ErrorCode.PERSISTED_DATA_INVALID ||
               error.code === ErrorCode.PROJECT_VERSION_CORRUPTED
             ? 422
-            : error.code === ErrorCode.DATABASE_UNAVAILABLE
+            : error.code === ErrorCode.DATABASE_UNAVAILABLE ||
+                error.code === ErrorCode.DATABASE_SCHEMA_MISSING
               ? 503
               : 500;
 

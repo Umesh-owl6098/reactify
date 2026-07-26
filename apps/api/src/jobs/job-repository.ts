@@ -1,7 +1,10 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { BackgroundJobStatus, BackgroundJobType } from "./job-types.js";
 import type { JobConfig } from "./job-config.js";
+import type { BackgroundJobStatus, BackgroundJobType } from "./job-types.js";
+import type { ProviderFailureMetadata } from "./provider-failure-metadata.js";
 import { hashWorkerId } from "./worker-id.js";
+import { logJobEnqueueFailure, mapJobEnqueueError } from "../persistence/errors.js";
+import { logEvent } from "../lib/structured-log.js";
 
 export interface BackgroundJobRecord {
   id: string;
@@ -149,6 +152,13 @@ export class JobRepository {
           availableAt: input.availableAt ?? new Date(),
         },
       });
+      logEvent("background_job_inserted", {
+        jobId: created.id,
+        generationId: input.generationId,
+        jobType: input.jobType,
+        status: created.status,
+        availableAt: created.availableAt.toISOString(),
+      });
       return { job: mapJob(created), created: true };
     } catch (error) {
       if (idempotencyKey && isUniqueViolation(error)) {
@@ -164,7 +174,8 @@ export class JobRepository {
         });
         return { job: mapJob(existing), created: false };
       }
-      throw error;
+      logJobEnqueueFailure({ generationId: input.generationId }, error);
+      throw mapJobEnqueueError(error);
     }
   }
 
@@ -295,6 +306,16 @@ export class JobRepository {
       });
 
       return mapJob(updated);
+    });
+  }
+
+  async countClaimableJobs(): Promise<number> {
+    const now = new Date();
+    return this.prisma.backgroundJob.count({
+      where: {
+        status: { in: ["queued", "retry_scheduled"] },
+        availableAt: { lte: now },
+      },
     });
   }
 
@@ -507,6 +528,7 @@ export class JobRepository {
     availableAt: Date,
     failureCode: string,
     failureMessage: string,
+    failureMetadata?: ProviderFailureMetadata,
   ): Promise<boolean> {
     const now = new Date();
 
@@ -539,6 +561,7 @@ export class JobRepository {
           completedAt: now,
           failureCode,
           failureMessage,
+          failureMetadata: failureMetadata as Prisma.InputJsonValue | undefined,
           retryScheduledAt: availableAt,
         },
       }),
@@ -553,6 +576,7 @@ export class JobRepository {
     failureCode: string,
     failureMessage: string,
     status: "failed" | "dead_letter" = "failed",
+    failureMetadata?: ProviderFailureMetadata,
   ): Promise<boolean> {
     const now = new Date();
     const where =
@@ -585,7 +609,13 @@ export class JobRepository {
     if (job && job.attemptNumber > 0) {
       await this.prisma.jobAttempt.updateMany({
         where: { jobId, attemptNumber: job.attemptNumber, status: "started" },
-        data: { status: "failed", completedAt: now, failureCode, failureMessage },
+        data: {
+          status: "failed",
+          completedAt: now,
+          failureCode,
+          failureMessage,
+          failureMetadata: failureMetadata as Prisma.InputJsonValue | undefined,
+        },
       });
     }
 
@@ -664,33 +694,71 @@ export class JobRepository {
   }
 
   async findStaleJobs(now: Date = new Date()): Promise<BackgroundJobRecord[]> {
+    const heartbeatCutoff = new Date(now.getTime() - this.config.lockTtlMs);
     const rows = await this.prisma.backgroundJob.findMany({
       where: {
         status: { in: ["claimed", "running"] },
-        lockExpiresAt: { lt: now },
+        OR: [
+          { lockExpiresAt: { lt: now } },
+          { lastHeartbeatAt: { lt: heartbeatCutoff } },
+          { lastHeartbeatAt: null, lockedAt: { lt: heartbeatCutoff } },
+        ],
       },
     });
     return rows.map(mapJob);
   }
 
-  async requeueStaleJob(jobId: string): Promise<boolean> {
-    const updated = await this.prisma.backgroundJob.updateMany({
-      where: {
+  async requeueStaleJob(jobId: string, now: Date = new Date()): Promise<boolean> {
+    const heartbeatCutoff = new Date(now.getTime() - this.config.lockTtlMs);
+    return this.prisma.$transaction(async (tx) => {
+      const staleWhere = {
         id: jobId,
         status: { in: ["claimed", "running"] },
-        lockExpiresAt: { lt: new Date() },
-      },
-      data: {
-        status: "retry_scheduled",
-        availableAt: new Date(),
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-        failureCode: "WORKER_INTERRUPTED",
-        failureMessage: "Worker interrupted before completion.",
-      },
+        OR: [
+          { lockExpiresAt: { lt: now } },
+          { lastHeartbeatAt: { lt: heartbeatCutoff } },
+          { lastHeartbeatAt: null, lockedAt: { lt: heartbeatCutoff } },
+        ],
+      } satisfies Prisma.BackgroundJobWhereInput;
+
+      const job = await tx.backgroundJob.findFirst({ where: staleWhere });
+      if (!job) {
+        return false;
+      }
+
+      const exhausted = job.attemptNumber >= job.maxAttempts;
+      const updated = await tx.backgroundJob.updateMany({
+        where: staleWhere,
+        data: {
+          status: exhausted ? "dead_letter" : "retry_scheduled",
+          availableAt: exhausted ? job.availableAt : now,
+          failedAt: exhausted ? now : null,
+          lockedAt: null,
+          lockedBy: null,
+          lockExpiresAt: null,
+          failureCode: "WORKER_INTERRUPTED",
+          failureMessage: exhausted
+            ? "Worker was interrupted and the maximum attempt count was reached."
+            : "Worker interrupted before completion.",
+        },
+      });
+
+      if (updated.count > 0) {
+        await tx.jobAttempt.updateMany({
+          where: { jobId, attemptNumber: job.attemptNumber, status: "started" },
+          data: {
+            status: "failed",
+            completedAt: now,
+            failureCode: "WORKER_INTERRUPTED",
+            failureMessage: exhausted
+              ? "Maximum attempt count reached after worker interruption."
+              : "Worker interrupted before completion.",
+          },
+        });
+      }
+
+      return updated.count > 0;
     });
-    return updated.count > 0;
   }
 
   async getAttempts(jobId: string) {

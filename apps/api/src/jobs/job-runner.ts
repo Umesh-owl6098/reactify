@@ -3,6 +3,7 @@ import { ErrorCode } from "@reactify/shared";
 import type { UsageOperationType } from "@reactify/shared";
 import type { Env } from "../env.js";
 import type { GenerationStore } from "../pipeline/store.js";
+import type { GenerationRecord } from "../pipeline/types.js";
 import { runWithUsageContext, wasProviderInvoked } from "../usage/usage-context.js";
 import type { UsageService } from "../usage/usage-service.js";
 import { UsageLimitError } from "../usage/usage-service.js";
@@ -21,9 +22,11 @@ import { createProgressReporter } from "./job-progress.js";
 import type { JobRepository } from "./job-repository.js";
 import type { JobService } from "./job-service.js";
 import type { BackgroundJobType } from "./job-types.js";
-import { syncGenerationForJobFailure } from "./generation-sync.js";
+import { syncGenerationForJobFailure, syncGenerationForJobStart } from "./generation-sync.js";
+import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import { recordWorkerPresence } from "./worker-presence.js";
 import { getWorkerId } from "./worker-id.js";
+import { logError, logEvent, logWarn, serializeError } from "../lib/structured-log.js";
 
 export interface JobRunnerDeps {
   repository: JobRepository;
@@ -34,6 +37,7 @@ export interface JobRunnerDeps {
   usageService?: UsageService;
   env: Env;
   workerPresenceFile?: string;
+  loadGenerationById?: (generationId: string) => Promise<GenerationRecord | null>;
   logger?: JobRunnerLogger;
 }
 
@@ -143,8 +147,24 @@ export class JobRunner {
   private async pollOnce(): Promise<void> {
     const claimed = await this.deps.repository.claimNextJob(this.workerId);
     if (!claimed) {
+      const pending = await this.deps.repository.countClaimableJobs();
+      if (pending > 0) {
+        logWarn("worker_poll_claim_miss", {
+          workerId: this.workerId,
+          pendingClaimableJobs: pending,
+        });
+      }
       return;
     }
+
+    logEvent("job_claimed", {
+      workerId: this.workerId,
+      jobId: claimed.id,
+      generationId: claimed.generationId,
+      jobType: claimed.jobType,
+      jobStatus: claimed.status,
+      attemptNumber: claimed.attemptNumber,
+    });
 
     this.activeExecutions += 1;
     void this.executeJob(claimed.id).finally(() => {
@@ -164,6 +184,7 @@ export class JobRunner {
       }
 
       if (!job) {
+        logWarn("job_execution_aborted_missing_job", { jobId, workerId: this.workerId });
         return;
       }
 
@@ -177,11 +198,26 @@ export class JobRunner {
 
       const running = await this.deps.repository.startAttempt(jobId, this.workerId);
       if (!running) {
+        const current = await this.deps.repository.getById(jobId);
+        logWarn("job_start_attempt_skipped", {
+          jobId,
+          workerId: this.workerId,
+          jobStatus: current?.status,
+          lockedBy: current?.lockedBy,
+          attemptNumber: current?.attemptNumber,
+        });
         return;
       }
 
       job = running;
       attemptNumber = job.attemptNumber;
+      logEvent("handler_started", {
+        jobId,
+        generationId: job.generationId,
+        jobType: job.jobType,
+        attemptNumber: job.attemptNumber,
+        workerId: this.workerId,
+      });
       this.deps.logger?.info("job_started", {
         jobId,
         generationId: job.generationId,
@@ -193,6 +229,23 @@ export class JobRunner {
       heartbeatTimer = setInterval(() => {
         void this.deps.repository.heartbeat(jobId, this.workerId);
       }, this.deps.config.heartbeatIntervalMs);
+
+      if (this.deps.loadGenerationById) {
+        const freshGeneration = await this.deps.loadGenerationById(job.generationId);
+        if (freshGeneration) {
+          this.deps.store.hydrate([freshGeneration]);
+          logEvent("generation_hydrated", {
+            generationId: job.generationId,
+            jobId,
+            generationStatus: freshGeneration.status,
+          });
+        } else {
+          logWarn("generation_hydrate_missing", {
+            generationId: job.generationId,
+            jobId,
+          });
+        }
+      }
 
       const handler = this.deps.registry.get(job.jobType as BackgroundJobType);
       if (!handler) {
@@ -210,8 +263,8 @@ export class JobRunner {
             jobId,
             operationType: job.jobType,
             attemptNumber,
-            provider: this.deps.env.AI_PROVIDER === "mock" ? "mock" : "anthropic",
-            model: this.deps.env.ANTHROPIC_MODEL,
+            provider: resolveUsageProviderName(this.deps.env),
+            model: resolveActiveModel(this.deps.env),
             estimate: {
               operationType: job.jobType as UsageOperationType,
               maxOutputTokens: this.deps.env.AI_MAX_TOKENS,
@@ -287,16 +340,46 @@ export class JobRunner {
 
       const record = this.deps.store.get(job.generationId);
       if (record) {
-        void this.deps.store.persist(record);
+        // Chained jobs hydrate their own copy of the generation. The completed
+        // handler's mutations must be durable before a fast worker can claim
+        // the next job in the chain.
+        logEvent("job_generation_persist_started", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+          stateVersion: record.stateVersion,
+        });
+        await this.deps.store.persist(record);
+        logEvent("job_generation_persist_completed", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+          stateVersion: record.stateVersion,
+        });
       }
 
       if (result.waitingForClient) {
+        logEvent("job_waiting_transition_started", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+        });
         await this.deps.repository.markWaitingForClient(
           jobId,
           this.workerId,
           (result.result ?? {}) as Prisma.InputJsonValue,
         );
+        logEvent("job_waiting_transition_completed", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+        });
         this.deps.logger?.info("job_waiting_for_client", { jobId, generationId: job.generationId, jobType: job.jobType });
+        logEvent("generation_waiting_for_client_review", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+        });
         return;
       }
 
@@ -326,6 +409,12 @@ export class JobRunner {
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
+      logError("job_execution_failed", error, {
+        jobId,
+        workerId: this.workerId,
+        attemptNumber,
+        durationMs: Date.now() - startedAt,
+      });
       if (
         this.deps.usageService &&
         !wasProviderInvoked()
@@ -354,10 +443,12 @@ export class JobRunner {
           ? new PermanentJobError(error.code, error.message)
         : classifyProviderError(error);
 
+    const willRetry = isTransientError(classified) && job.attemptNumber < job.maxAttempts;
     const record = this.deps.store.get(job.generationId);
-    if (record) {
-      syncGenerationForJobFailure(record, classified.code);
-      void this.deps.store.persist(record);
+
+    if (record && !willRetry) {
+      syncGenerationForJobFailure(record, classified.code, job.jobType as BackgroundJobType);
+      await this.deps.store.persist(record);
     }
 
     if (classified instanceof JobCancelledError) {
@@ -370,6 +461,10 @@ export class JobRunner {
     }
 
     if (isTransientError(classified) && job.attemptNumber < job.maxAttempts) {
+      if (record) {
+        syncGenerationForJobStart(record, job.jobType);
+        await this.deps.store.persist(record);
+      }
       if (this.deps.usageService?.isMeteredJobType(job.jobType) && !wasProviderInvoked()) {
         await this.deps.usageService.releaseReservationForJob(jobId, job.attemptNumber);
       }
@@ -381,6 +476,7 @@ export class JobRunner {
         availableAt,
         classified.code,
         classified.message,
+        classified.providerMetadata,
       );
       this.deps.logger?.warn("job_retry_scheduled", {
         jobId,
@@ -392,11 +488,20 @@ export class JobRunner {
     }
 
     const terminalStatus = job.attemptNumber >= job.maxAttempts ? "dead_letter" : "failed";
-    await this.deps.repository.failJob(jobId, this.workerId, classified.code, classified.message, terminalStatus);
+    await this.deps.repository.failJob(
+      jobId,
+      this.workerId,
+      classified.code,
+      classified.message,
+      terminalStatus,
+      classified.providerMetadata,
+    );
     this.deps.logger?.error("job_failed", {
       jobId,
       generationId: job.generationId,
       failureCode: classified.code,
+      failureMessage: classified.message,
+      error: serializeError(error),
     });
   }
 

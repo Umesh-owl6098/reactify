@@ -26,6 +26,16 @@ describe("isGenerationRetryAllowed", () => {
     expect(isGenerationRetryAllowed(store.get(record.id)!)).toBe(true);
   });
 
+  it("allows retry for legacy DATABASE_UNAVAILABLE design-analysis failures", () => {
+    const store = createStore();
+    const record = store.create({ ownerId: "owner", imageId: "image" });
+    store.markFailed(record.id, "design_analysis", ErrorCode.DATABASE_UNAVAILABLE, "legacy failure", {
+      manualRetryAllowed: true,
+    });
+
+    expect(isGenerationRetryAllowed(store.get(record.id)!)).toBe(true);
+  });
+
   it("blocks retry when design analysis already exists", () => {
     const store = createStore();
     const record = store.create({ ownerId: "owner", imageId: "image" });

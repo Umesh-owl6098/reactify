@@ -2,8 +2,10 @@ import { ErrorCode } from "@reactify/shared";
 import type { PipelineStageName } from "@reactify/generation-contracts";
 import type { ImageStorage } from "../lib/imageStorage.js";
 import type { GenerationStore } from "../pipeline/store.js";
+import { isLegacyForcedFailureError } from "../pipeline/mock-failure-stage.js";
 import type { GenerationRecord } from "../pipeline/types.js";
 import type { JobService } from "./job-service.js";
+import { UsageLimitError } from "./job-service.js";
 import type { BackgroundJobType } from "./job-types.js";
 
 export const RECOVERABLE_FAILURE_CODES = new Set<string>([
@@ -11,6 +13,8 @@ export const RECOVERABLE_FAILURE_CODES = new Set<string>([
   ErrorCode.JOB_STALLED,
   ErrorCode.WORKER_INTERRUPTED,
   ErrorCode.JOB_ENQUEUE_FAILED,
+  ErrorCode.DATABASE_UNAVAILABLE,
+  ErrorCode.MOCK_FAILURE_INJECTED,
 ]);
 
 const STAGE_JOB_TYPE: Partial<Record<PipelineStageName, BackgroundJobType>> = {
@@ -26,11 +30,19 @@ export function isGenerationRetryAllowed(record: GenerationRecord): boolean {
   }
 
   const latestError = record.errors.at(-1);
-  if (!latestError || !RECOVERABLE_FAILURE_CODES.has(latestError.code)) {
+  if (!latestError) {
     return false;
   }
 
-  if (record.failStage === "design_analysis") {
+  if (RECOVERABLE_FAILURE_CODES.has(latestError.code)) {
+    // continue to stage checks below
+  } else if (isLegacyForcedFailureError(latestError.code, latestError.message)) {
+    // Legacy injected failures used INTERNAL_ERROR before MOCK_FAILURE_INJECTED existed.
+  } else {
+    return false;
+  }
+
+  if (latestError.stage === "design_analysis" || record.failStage === "design_analysis") {
     return !record.outputs.designAnalysis;
   }
 
@@ -67,6 +79,25 @@ export async function recoverFailedGeneration(input: {
   const activeJob = await jobService.repository.findActiveJobByType(record.id, jobType);
   if (activeJob) {
     return { ok: true, jobId: activeJob.id, created: false };
+  }
+
+  if (
+    record.status === "Analyzing" &&
+    !record.outputs.designAnalysis &&
+    !record.cancelled &&
+    !record.deletedAt
+  ) {
+    const latestError = record.errors.at(-1);
+    const recoverableLatestError =
+      latestError &&
+      (RECOVERABLE_FAILURE_CODES.has(latestError.code) ||
+        isLegacyForcedFailureError(latestError.code, latestError.message));
+    if (recoverableLatestError) {
+      record.status = "Failed";
+      record.activeStage = null;
+      record.manualRetryAllowed = true;
+      record.updatedAt = new Date().toISOString();
+    }
   }
 
   if (record.cancelled || record.deletedAt) {
@@ -118,18 +149,22 @@ export async function recoverFailedGeneration(input: {
         jobType === "design_analysis"
           ? { generationId: record.id, imageId: record.imageId }
           : { generationId: record.id },
-      idempotencyKey: `recovery-${jobType}-${record.id}`,
+      idempotencyKey: `recovery-${jobType}-${record.id}-${record.errors.length}`,
     });
 
     await store.persistById(record.id);
     return { ok: true, jobId: accepted.job.jobId, created: accepted.created };
   } catch (error) {
     const failureCode =
-      error instanceof Error && "code" in error
-        ? String((error as { code?: string }).code)
+      error instanceof UsageLimitError
+        ? (error.code as (typeof ErrorCode)[keyof typeof ErrorCode])
         : ErrorCode.JOB_ENQUEUE_FAILED;
     const failureMessage =
-      error instanceof Error ? error.message : "Unable to queue the recovery job.";
+      error instanceof UsageLimitError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "Unable to queue the recovery job.";
 
     store.markFailed(record.id, failStage, failureCode, failureMessage, { manualRetryAllowed: true });
     await store.persistById(record.id);

@@ -1,15 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import { ExportManifestSchema } from "@reactify/generation-contracts";
 import { generatedProjectFixture } from "@reactify/test-utils";
 import { ErrorCode } from "@reactify/shared";
 import type { GenerationRecord } from "../../pipeline/types.js";
 import { computeProjectHash } from "../projectHash.js";
-import { ExportService } from "./ExportService.js";
+import { ensureInitialVersion } from "../edit/versionStore.js";
+import { ExportArtifactStore } from "./exportArtifactStore.js";
+import { ExportService, type InternalExportRecord } from "./ExportService.js";
 
 function createReadyRecord(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
   const projectHash = computeProjectHash(generatedProjectFixture);
-  return {
+  const record: GenerationRecord = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     imageId: "660e8400-e29b-41d4-a716-446655440000",
     projectId: "770e8400-e29b-41d4-a716-446655440000",
@@ -70,14 +75,33 @@ function createReadyRecord(overrides: Partial<GenerationRecord> = {}): Generatio
     updatedAt: new Date().toISOString(),
     ...overrides,
   };
+  ensureInitialVersion(record);
+  return record;
 }
 
 describe("ExportService", () => {
-  const service = new ExportService({
-    maxFiles: 200,
-    maxFileBytes: 512 * 1024,
-    maxTotalBytes: 5 * 1024 * 1024,
-    maxZipBytes: 8 * 1024 * 1024,
+  let rootDir = "";
+  let service: ExportService;
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(join(tmpdir(), "reactify-export-service-"));
+    const artifactStore = new ExportArtifactStore(rootDir);
+    await artifactStore.ensureReady();
+    service = new ExportService(
+      {
+        maxFiles: 200,
+        maxFileBytes: 512 * 1024,
+        maxTotalBytes: 5 * 1024 * 1024,
+        maxZipBytes: 8 * 1024 * 1024,
+      },
+      artifactStore,
+    );
+  });
+
+  afterEach(async () => {
+    if (rootDir) {
+      await rm(rootDir, { recursive: true, force: true });
+    }
   });
 
   it("creates a ZIP with required project files and metadata", async () => {
@@ -97,9 +121,15 @@ describe("ExportService", () => {
     expect(result.summary.status).toBe("ready");
 
     const exportRecord = service.getExport(record, result.summary.exportId);
-    expect(exportRecord?.zipBuffer).toBeDefined();
+    expect(exportRecord?.artifactReference).toBeTruthy();
 
-    const zip = await JSZip.loadAsync(exportRecord!.zipBuffer!);
+    const download = await service.resolveDownload(record, result.summary.exportId);
+    expect(download.ok).toBe(true);
+    if (!download.ok) {
+      return;
+    }
+
+    const zip = await JSZip.loadAsync(download.buffer);
     const entries = Object.keys(zip.files);
     expect(entries.some((entry) => entry.startsWith("landing-page/"))).toBe(true);
     expect(entries).toContain("landing-page/README.md");
@@ -144,8 +174,13 @@ describe("ExportService", () => {
     expect(result.summary.filename).toBe("mocklandingpage-v1.zip");
     expect(result.summary.projectName).toBe("mocklandingpage");
 
-    const exportRecord = service.getExport(record, result.summary.exportId);
-    const zip = await JSZip.loadAsync(exportRecord!.zipBuffer!);
+    const download = await service.resolveDownload(record, result.summary.exportId);
+    expect(download.ok).toBe(true);
+    if (!download.ok) {
+      return;
+    }
+
+    const zip = await JSZip.loadAsync(download.buffer);
     const entries = Object.keys(zip.files);
     expect(entries).toContain("mocklandingpage/package.json");
     expect(entries).toContain("mocklandingpage/index.html");
@@ -166,8 +201,13 @@ describe("ExportService", () => {
       return;
     }
 
-    const exportRecord = service.getExport(record, result.summary.exportId);
-    const zip = await JSZip.loadAsync(exportRecord!.zipBuffer!);
+    const download = await service.resolveDownload(record, result.summary.exportId);
+    expect(download.ok).toBe(true);
+    if (!download.ok) {
+      return;
+    }
+
+    const zip = await JSZip.loadAsync(download.buffer);
     const entries = Object.keys(zip.files);
     expect(entries.some((entry) => entry.endsWith("reactify-generation-summary.json"))).toBe(false);
   });
@@ -229,12 +269,16 @@ describe("ExportService", () => {
   });
 
   it("rejects oversized exports", async () => {
-    const tinyService = new ExportService({
-      maxFiles: 200,
-      maxFileBytes: 512 * 1024,
-      maxTotalBytes: 50,
-      maxZipBytes: 8 * 1024 * 1024,
-    });
+    const artifactStore = new ExportArtifactStore(rootDir);
+    const tinyService = new ExportService(
+      {
+        maxFiles: 200,
+        maxFileBytes: 512 * 1024,
+        maxTotalBytes: 50,
+        maxZipBytes: 8 * 1024 * 1024,
+      },
+      artifactStore,
+    );
     const record = createReadyRecord();
     const result = await tinyService.createExport(record, {});
     expect(result.ok).toBe(false);
@@ -242,5 +286,34 @@ describe("ExportService", () => {
       return;
     }
     expect(result.errorCode).toBe(ErrorCode.EXPORT_TOO_LARGE);
+  });
+
+  it("completes export preparation for the active in-progress export job", async () => {
+    const record = createReadyRecord();
+    ensureInitialVersion(record);
+    const exportId = "880e8400-e29b-41d4-a716-446655440000";
+    record.exportInProgress = true;
+    record.exports.push({
+      exportId,
+      status: "preparing",
+      filename: "mock-landing-page-v1.zip",
+      projectName: "mock-landing-page",
+      generationId: record.id,
+      versionId: record.activeVersionId!,
+      versionNumber: 1,
+      projectHash: record.projectHash!,
+      fileCount: 0,
+      totalSizeBytes: 0,
+      createdAt: new Date().toISOString(),
+      includeMetadata: true,
+      includeGenerationSummary: false,
+    } as InternalExportRecord & { includeMetadata?: boolean; includeGenerationSummary?: boolean });
+
+    await service.executeExportPreparationJob(record, exportId);
+
+    const exportRecord = service.getExport(record, exportId);
+    expect(exportRecord?.status).toBe("ready");
+    expect(record.status).toBe("Ready");
+    expect(record.exportInProgress).toBe(false);
   });
 });

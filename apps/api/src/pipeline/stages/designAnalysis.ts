@@ -1,7 +1,10 @@
 import type { AnalysisMetadata } from "@reactify/generation-contracts";
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
 import { parseDesignAnalysisResponse } from "../../lib/parseDesignAnalysis.js";
-import { AIProviderError } from "../../providers/AnthropicProvider.js";
+import { extractSafeOpenAIErrorFields } from "../../providers/openai-error-utils.js";
+import { isAIProviderError } from "../../providers/provider-errors.js";
+import { UsageLimitError } from "../../usage/usage-service.js";
+import { toProviderFailureMetadata } from "../../jobs/provider-failure-metadata.js";
 import type { PipelineState } from "../types.js";
 
 export const designAnalysisStage: StageExecutor = async (input, context) => {
@@ -18,6 +21,14 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
 
   try {
     const prompt = context.loadPrompt("design-analysis");
+
+    context.logger.info("provider_invocation_started", {
+      generationId: context.generationId,
+      stage: "design_analysis",
+      provider: context.aiProvider.providerName,
+      model: context.aiConfig.model,
+    });
+
     const invocation = await context.aiProvider.invoke(
       [{ text: prompt.content }, state.imageInput],
       {
@@ -29,8 +40,24 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
       },
     );
 
+    context.logger.info("provider_invocation_completed", {
+      generationId: context.generationId,
+      stage: "design_analysis",
+      provider: invocation.provider,
+      model: invocation.model,
+      latencyMs: invocation.latencyMs,
+      providerRequestId: invocation.providerRequestId,
+    });
+
     const parsed = parseDesignAnalysisResponse(invocation.rawText);
     if (!parsed.ok) {
+      context.logger.error("design_analysis_validation_failed", {
+        generationId: context.generationId,
+        model: invocation.model,
+        errorCode: parsed.errorCode,
+        validationIssues: parsed.validationIssues?.slice(0, 20),
+      });
+
       return {
         status: "failed",
         errorCode: parsed.errorCode,
@@ -70,18 +97,53 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
       durationMs: invocation.latencyMs,
     } satisfies StageResult<Partial<PipelineState>>;
   } catch (error) {
-    if (error instanceof AIProviderError) {
+    if (error instanceof UsageLimitError) {
+      context.logger.error("provider_invocation_failed", {
+        generationId: context.generationId,
+        stage: "design_analysis",
+        provider: context.aiProvider.providerName,
+        model: context.aiConfig.model,
+        failureCode: error.code,
+        message: error.message,
+        reachedOpenAI: false,
+      });
+
       return {
         status: "failed",
-        errorCode: error.errorCode,
+        errorCode: error.code,
         errorMessage: error.message,
         durationMs: 0,
       };
     }
 
-    context.logger.error("design_analysis_failed", {
+    if (isAIProviderError(error)) {
+      const safeFields = extractSafeOpenAIErrorFields(error);
+      context.logger.error("provider_invocation_failed", {
+        generationId: context.generationId,
+        stage: "design_analysis",
+        provider: context.aiProvider.providerName,
+        model: context.aiConfig.model,
+        failureCode: error.errorCode,
+        ...safeFields,
+      });
+
+      return {
+        status: "failed",
+        errorCode: error.errorCode,
+        errorMessage: error.message,
+        providerMetadata: toProviderFailureMetadata(safeFields),
+        durationMs: 0,
+      };
+    }
+
+    context.logger.error("provider_invocation_failed", {
       generationId: context.generationId,
+      stage: "design_analysis",
+      provider: context.aiProvider.providerName,
+      model: context.aiConfig.model,
+      failureCode: ErrorCode.AI_ERROR,
       message: error instanceof Error ? error.message : "Unknown provider error",
+      reachedOpenAI: false,
     });
 
     return {

@@ -1,6 +1,7 @@
 import type { PipelineRunner } from "../../pipeline/PipelineRunner.js";
 import type { JobExecutionContext, JobHandlerResult } from "../job-context.js";
 import { ProjectGenerationProgress } from "../job-progress.js";
+import { throwPipelineFailure } from "../pipeline-failure.js";
 import { PermanentJobError } from "../job-errors.js";
 import { ErrorCode } from "@reactify/shared";
 import type { ReactProjectGenerationJobPayloadSchema } from "@reactify/shared";
@@ -38,7 +39,7 @@ export function createReactProjectGenerationHandler(runner: PipelineRunner) {
     }
 
     if (result.outcome === "failed") {
-      throw new PermanentJobError(result.code, result.message);
+      throwPipelineFailure(result.code, result.message, result.providerMetadata);
     }
 
     const record = context.store.get(data.generationId);

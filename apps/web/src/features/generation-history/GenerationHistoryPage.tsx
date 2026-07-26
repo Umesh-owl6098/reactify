@@ -1,23 +1,32 @@
 import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { APP_VERSION } from "@reactify/shared";
 import { UploadZone } from "../upload/UploadZone";
 import { useUploadStore } from "../upload/uploadStore";
+import { resetActiveGenerationSession } from "../generation/startNewGeneration";
 import { GenerationFilters } from "./GenerationFilters";
 import { GenerationList } from "./GenerationList";
 import { useGenerationHistory } from "./useGenerationHistory";
 
 export function GenerationHistoryPage() {
   const navigate = useNavigate();
+  const uploadStatus = useUploadStore((state) => state.status);
   const upload = useUploadStore((state) => state.upload);
   const { items, total, limit, offset, statusFilter, isLoading, error, setPagination, setStatusFilter } =
     useGenerationHistory();
 
   useEffect(() => {
-    if (upload?.imageId) {
-      navigate(`/generations/new`, { replace: true });
+    resetActiveGenerationSession();
+  }, []);
+
+  useEffect(() => {
+    if (uploadStatus === "success" && upload?.imageId) {
+      navigate("/generations/new", {
+        replace: true,
+        state: { freshUpload: true, imageId: upload.imageId },
+      });
     }
-  }, [navigate, upload?.imageId]);
+  }, [navigate, upload?.imageId, uploadStatus]);
 
   const canGoPrev = offset > 0;
   const canGoNext = offset + limit < total;
@@ -31,7 +40,7 @@ export function GenerationHistoryPage() {
           </p>
           <h1 className="mb-3 text-4xl font-bold tracking-tight sm:text-5xl">Reactify</h1>
           <p className="mx-auto max-w-2xl text-slate-300">
-            Your persisted generation history survives backend restarts.
+            Upload a new screenshot to start fresh. Open past projects from history below.
           </p>
         </div>
 
@@ -80,13 +89,5 @@ export function GenerationHistoryPage() {
         </p>
       </main>
     </div>
-  );
-}
-
-export function GenerationWorkspaceLink() {
-  return (
-    <Link to="/" className="text-sm text-indigo-300 hover:text-indigo-200">
-      Back to history
-    </Link>
   );
 }

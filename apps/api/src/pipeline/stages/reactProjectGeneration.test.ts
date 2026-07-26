@@ -32,9 +32,12 @@ function createContext(provider: MockAIProvider): PipelineContext {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     flags: DEFAULT_FEATURE_FLAGS,
     aiProvider: provider,
-    loadPrompt: () => ({
+    loadPrompt: (name) => ({
       meta: { promptVersion: "1.0.0", schemaVersion: "1" },
-      content: "Generate a React project from the confirmed plan.",
+      content:
+        name === "react-project-generation-repair"
+          ? "Repair the generated project JSON."
+          : "Generate a React project from the confirmed plan.",
     }),
     aiConfig: {
       model: testEnv.ANTHROPIC_MODEL,
@@ -63,13 +66,13 @@ describe("reactProjectGenerationStage", () => {
     expect(provider.invocations[0]?.inputs.some((input) => "text" in input && input.text.includes("GenerationPlanV1"))).toBe(true);
   });
 
-  it("returns GENERATED_PROJECT_SCHEMA_INVALID for malformed JSON", async () => {
+  it("returns PROVIDER_RESPONSE_NOT_JSON for malformed JSON", async () => {
     const result = await reactProjectGenerationStage(
       createState(),
-      createContext(new MockAIProvider({ rawText: "{bad" })),
+      createContext(new MockAIProvider({ responses: ["{bad", "{bad"] })),
     );
     expect(result.status).toBe("failed");
-    expect(result.errorCode).toBe(ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID);
+    expect(result.errorCode).toBe(ErrorCode.PROVIDER_RESPONSE_NOT_JSON);
   });
 
   it("returns AI_RESPONSE_VERSION_MISSING when responseVersion is absent", async () => {
@@ -138,6 +141,31 @@ describe("reactProjectGenerationStage", () => {
       createContext(new MockAIProvider({ error: new AIProviderError("Timed out", ErrorCode.AI_TIMEOUT) })),
     );
     expect(result.errorCode).toBe(ErrorCode.AI_TIMEOUT);
+  });
+
+  it("attempts schema repair once for invalid JSON and succeeds on repair response", async () => {
+    const provider = new MockAIProvider({
+      responses: ["{bad", createGeneratedProjectFixtureJson()],
+    });
+    const context = createContext(provider);
+    const result = await reactProjectGenerationStage(createState(), context);
+
+    expect(result.status).toBe("completed");
+    expect(provider.invocations).toHaveLength(2);
+  });
+
+  it("returns detailed schema failure after repair is exhausted", async () => {
+    const provider = new MockAIProvider({
+      responses: [
+        createGeneratedProjectFixtureJson({ projectName: undefined }),
+        createGeneratedProjectFixtureJson({ summary: undefined }),
+      ],
+    });
+    const result = await reactProjectGenerationStage(createState(), createContext(provider));
+
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe(ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID);
+    expect(provider.invocations).toHaveLength(2);
   });
 
   it("does not log prompt content", async () => {

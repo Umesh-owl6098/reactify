@@ -4,8 +4,11 @@ import {
   createProjectExport,
   downloadProjectExport,
   fetchExportHistory,
+  formatDownloadErrorMessage,
   formatExportErrorMessage,
 } from "../../lib/generation-api";
+import { useGenerationScopedFetch } from "../generation/useGenerationScopedFetch";
+import { keepGenerationRecord, keepGenerationRecords } from "../generation/generationScopedRecords";
 import { useExportStore } from "./exportStore";
 
 export function shortenHash(value: string | null | undefined, length = 12): string {
@@ -23,6 +26,8 @@ export function useProjectExport(status: GenerationStatusResponse | null, onRefr
     latestSummary,
     history,
     isSubmitting,
+    isDownloading,
+    downloadError,
     openDialog,
     closeDialog,
     setPhase,
@@ -30,30 +35,55 @@ export function useProjectExport(status: GenerationStatusResponse | null, onRefr
     setLatestSummary,
     setHistory,
     setSubmitting,
+    setDownloading,
+    setDownloadError,
   } = useExportStore();
   const submittingRef = useRef(false);
+  const downloadingRef = useRef(false);
+  const generationId = status?.id ?? null;
+
+  const resetStore = useCallback(() => {
+    useExportStore.getState().reset();
+  }, []);
+
+  const { runFetch } = useGenerationScopedFetch({ generationId, onGenerationChange: resetStore });
 
   useEffect(() => {
-    if (!status?.latestExportSummary) {
-      return;
-    }
-    setLatestSummary(status.latestExportSummary);
-  }, [setLatestSummary, status?.latestExportSummary]);
+    const scoped = keepGenerationRecord(status?.latestExportSummary ?? null, generationId);
 
-  const loadHistory = useCallback(async () => {
-    if (!status) {
+    // The store is subscribed to wholesale, so an unconditional write here would
+    // re-render on every status poll and loop whenever the caller rebuilds the
+    // status object.
+    const current = useExportStore.getState().latestSummary;
+    if (current?.exportId === scoped?.exportId && current?.status === scoped?.status) {
       return;
     }
-    const response = await fetchExportHistory(status.id);
-    setHistory(response.exports);
-  }, [setHistory, status]);
+
+    setLatestSummary(scoped);
+  }, [generationId, setLatestSummary, status?.latestExportSummary]);
+
+  const loadHistory = useCallback(
+    async (force = true) => {
+      await runFetch(async (scope) => {
+        const response = await fetchExportHistory(scope.generationId);
+        if (scope.isStale()) {
+          return;
+        }
+        setHistory(keepGenerationRecords(response.exports, scope.generationId));
+      }, { force });
+    },
+    [runFetch, setHistory],
+  );
 
   useEffect(() => {
-    if (!status?.exportAllowed) {
+    if (!status?.id) {
       return;
     }
+
+    // Export history is read-only and must render even while new exports are blocked,
+    // so a failed or stale export can be inspected instead of silently hiding history.
     void loadHistory().catch(() => undefined);
-  }, [loadHistory, status?.exportAllowed, status?.id]);
+  }, [loadHistory, status?.exportAllowed, status?.id, status?.latestExportSummary?.status, status?.status]);
 
   const submitExport = useCallback(
     async (request: ExportRequest) => {
@@ -71,7 +101,11 @@ export function useProjectExport(status: GenerationStatusResponse | null, onRefr
         setLatestSummary(summary);
         if (summary.status === "ready") {
           setPhase("ready");
-          await downloadProjectExport(status.id, summary.exportId, summary.filename);
+          try {
+            await downloadProjectExport(status.id, summary.exportId, summary.filename);
+          } catch (downloadError) {
+            setDownloadError(formatDownloadErrorMessage(downloadError));
+          }
           await loadHistory();
           onRefreshStatus();
         } else {
@@ -86,17 +120,29 @@ export function useProjectExport(status: GenerationStatusResponse | null, onRefr
         setSubmitting(false);
       }
     },
-    [loadHistory, onRefreshStatus, setError, setLatestSummary, setPhase, setSubmitting, status],
+    [loadHistory, onRefreshStatus, setDownloadError, setError, setLatestSummary, setPhase, setSubmitting, status],
   );
 
   const downloadAgain = useCallback(
     async (exportId: string, filename: string) => {
-      if (!status) {
+      if (!status || downloadingRef.current) {
         return;
       }
-      await downloadProjectExport(status.id, exportId, filename);
+
+      downloadingRef.current = true;
+      setDownloading(true);
+      setDownloadError(null);
+
+      try {
+        await downloadProjectExport(status.id, exportId, filename);
+      } catch (downloadError) {
+        setDownloadError(formatDownloadErrorMessage(downloadError));
+      } finally {
+        downloadingRef.current = false;
+        setDownloading(false);
+      }
     },
-    [status],
+    [setDownloadError, setDownloading, status],
   );
 
   return {
@@ -106,6 +152,8 @@ export function useProjectExport(status: GenerationStatusResponse | null, onRefr
     latestSummary,
     history,
     isSubmitting,
+    isDownloading,
+    downloadError,
     exportAllowed: status?.exportAllowed ?? false,
     exportBlockedReason: status?.exportBlockedReason ?? null,
     openDialog,

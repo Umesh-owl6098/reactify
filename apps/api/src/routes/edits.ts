@@ -13,7 +13,9 @@ import type { EditService } from "../lib/edit/EditService.js";
 import type { GenerationStore } from "../pipeline/store.js";
 import type { AuthorizationService } from "../auth/AuthorizationService.js";
 import { requireOwnedGeneration } from "../lib/generationAccess.js";
+import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
 import type { JobService } from "../jobs/job-service.js";
+import type { PersistenceService } from "../persistence/PersistenceService.js";
 
 function sendError(
   reply: FastifyReply,
@@ -37,10 +39,34 @@ export async function registerEditRoutes(
   editService: EditService,
   authorization: AuthorizationService,
   jobService?: JobService,
+  persistence?: PersistenceService,
 ): Promise<void> {
+  const refreshOwnedGeneration = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    generationId: string,
+  ) => {
+    const owned = requireOwnedGeneration(authorization, request, reply, generationId, sendError);
+    if (!owned || !persistence) {
+      return owned;
+    }
+
+    const refreshed = await hydrateOwnedGenerationRecord({
+      store,
+      persistence,
+      generationId,
+      ownerId: request.auth!.user.id,
+    });
+    if (!refreshed) {
+      sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      return null;
+    }
+    return refreshed;
+  };
+
   app.post("/api/v1/generations/:id/edits", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -67,6 +93,10 @@ export async function registerEditRoutes(
         return reply.status(200).send(EditOperationSummarySchema.parse(prepared.summary));
       }
 
+      // The worker may claim the job immediately. Persist the edit first so it
+      // cannot hydrate an older generation snapshot and report "Edit not found."
+      await store.persist(record);
+
       const accepted = await jobService.enqueue({
         generationId: id,
         ownerId: request.auth!.user.id,
@@ -78,7 +108,6 @@ export async function registerEditRoutes(
             : `edit-intent-${prepared.summary.editId}`,
       });
 
-      void store.persist(record);
       return reply.status(202).send({
         edit: EditOperationSummarySchema.parse(prepared.summary),
         job: JobAcceptedResponseSchema.parse(accepted.job),
@@ -101,7 +130,7 @@ export async function registerEditRoutes(
 
   app.get("/api/v1/generations/:id/edits", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -116,7 +145,7 @@ export async function registerEditRoutes(
 
   app.get("/api/v1/generations/:id/edits/:editId", async (request, reply) => {
     const { id, editId } = request.params as { id: string; editId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -136,7 +165,7 @@ export async function registerEditRoutes(
 
   app.post("/api/v1/generations/:id/edits/:editId/clarification", async (request, reply) => {
     const { id, editId } = request.params as { id: string; editId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -157,7 +186,7 @@ export async function registerEditRoutes(
 
   app.post("/api/v1/generations/:id/edits/:editId/confirm", async (request, reply) => {
     const { id, editId } = request.params as { id: string; editId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -178,7 +207,7 @@ export async function registerEditRoutes(
 
   app.post("/api/v1/generations/:id/edits/:editId/cancel", async (request, reply) => {
     const { id, editId } = request.params as { id: string; editId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -198,10 +227,28 @@ export async function registerVersionRoutes(
   store: GenerationStore,
   editService: EditService,
   authorization: AuthorizationService,
+  persistence?: PersistenceService,
 ): Promise<void> {
+  const refreshOwnedGeneration = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    generationId: string,
+  ) => {
+    const owned = requireOwnedGeneration(authorization, request, reply, generationId, sendError);
+    if (!owned || !persistence) {
+      return owned;
+    }
+    return hydrateOwnedGenerationRecord({
+      store,
+      persistence,
+      generationId,
+      ownerId: request.auth!.user.id,
+    });
+  };
+
   app.get("/api/v1/generations/:id/versions", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }
@@ -227,7 +274,7 @@ export async function registerVersionRoutes(
 
   app.post("/api/v1/generations/:id/versions/:versionId/rollback", async (request, reply) => {
     const { id, versionId } = request.params as { id: string; versionId: string };
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+    const record = await refreshOwnedGeneration(request, reply, id);
     if (!record) {
       return;
     }

@@ -3,9 +3,11 @@ import { shortenHash } from "./useProjectExport";
 
 export function ExportSummaryCard({
   summary,
+  isDownloading,
   onDownloadAgain,
 }: {
   summary: ExportSummary;
+  isDownloading: boolean;
   onDownloadAgain: (exportId: string, filename: string) => void;
 }) {
   return (
@@ -23,8 +25,9 @@ export function ExportSummaryCard({
         {summary.status === "ready" ? (
           <button
             type="button"
-            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-100"
+            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Download ${summary.filename} again`}
+            disabled={isDownloading}
             onClick={() => onDownloadAgain(summary.exportId, summary.filename)}
           >
             Download again

@@ -20,7 +20,8 @@ describe("GenerationDetailErrorBoundary", () => {
     );
 
     expect(screen.getByText("Reactify could not display this generation.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to history" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("button", { name: "New generation" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   });
 });

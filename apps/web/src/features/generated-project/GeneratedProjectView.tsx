@@ -13,6 +13,8 @@ import { ExportProjectPanel } from "../export/ExportProjectButton";
 import { ProjectEditPanel } from "../project-edit/ProjectEditPanel";
 import { VisualComparisonPanel } from "../visual-comparison/VisualComparisonPanel";
 import { usePreviewStore } from "../preview/previewStore";
+import { usePreviewReadiness } from "../preview/usePreviewReadiness";
+import { FeatureAvailabilityPanel } from "../generation/FeatureAvailabilityPanel";
 
 interface GeneratedProjectViewProps {
   status: GenerationStatusResponse;
@@ -27,6 +29,7 @@ export function GeneratedProjectView({
 }: GeneratedProjectViewProps) {
   const project = status.outputs.generatedProject;
   const phase = usePreviewStore((state) => state.phase);
+  const previewReadiness = usePreviewReadiness();
   const { repair, attemptDetail, manualRetry } = useRepairStatus(status, onValidationReportSubmitted);
 
   if (!project) {
@@ -74,10 +77,19 @@ export function GeneratedProjectView({
       />
 
       {status.status === "Ready" ? (
-        <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100" role="status">
-          Preview ready. Browser-assisted sandbox compilation and runtime validation succeeded.
-        </div>
+        previewReadiness.ready ? (
+          <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100" role="status">
+            Preview ready. Browser-assisted sandbox compilation and runtime validation succeeded, and the generated
+            application is rendering visible content.
+          </div>
+        ) : (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100" role="status">
+            Preview not confirmed yet: {previewReadiness.reason}
+          </div>
+        )
       ) : null}
+
+      <FeatureAvailabilityPanel status={status} />
 
       <ExportProjectPanel status={status} onRefreshStatus={onRefreshStatus} />
       <ProjectEditPanel status={status} onRefreshStatus={onRefreshStatus} />

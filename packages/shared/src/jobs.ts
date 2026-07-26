@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Project versions are keyed by deterministic project hash, not UUIDs. */
+export const ProjectVersionIdSchema = z.string().min(1);
+
 export const BackgroundJobTypeSchema = z.enum([
   "design_analysis",
   "generation_plan_creation",
@@ -62,14 +65,14 @@ export const ProjectEditGenerationJobPayloadSchema = z.object({
 export const VisualCorrectionJobPayloadSchema = z.object({
   generationId: z.string().uuid(),
   comparisonId: z.string().uuid(),
-  versionId: z.string().uuid(),
+  versionId: ProjectVersionIdSchema,
   expectedProjectHash: z.string().min(1),
 });
 
 export const ExportPreparationJobPayloadSchema = z.object({
   generationId: z.string().uuid(),
   exportId: z.string().uuid(),
-  versionId: z.string().uuid(),
+  versionId: ProjectVersionIdSchema,
   expectedProjectHash: z.string().min(1),
   projectName: z.string().optional(),
   includeMetadata: z.boolean().optional(),

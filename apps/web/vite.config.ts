@@ -31,10 +31,11 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
     port: 5174,
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        target: "http://127.0.0.1:3001",
         changeOrigin: true,
       },
     },
@@ -42,5 +43,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
+    // The e2e suite is driven by Playwright against a running stack.
+    exclude: ["node_modules/**", "dist/**", "e2e/**"],
   },
 });

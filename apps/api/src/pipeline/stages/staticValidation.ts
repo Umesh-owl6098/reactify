@@ -1,5 +1,5 @@
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
-import { runStaticProjectValidation } from "../../lib/validation/staticProjectValidator.js";
+import { runStaticProjectValidationAsync } from "../../lib/validation/staticProjectValidator.js";
 import type { PipelineState } from "../types.js";
 
 export const staticValidationStage: StageExecutor = async (input) => {
@@ -14,7 +14,7 @@ export const staticValidationStage: StageExecutor = async (input) => {
     };
   }
 
-  const result = runStaticProjectValidation(state.generatedProject, state.generationPlan);
+  const result = await runStaticProjectValidationAsync(state.generatedProject, state.generationPlan);
   const output = {
     staticValidation: result,
   };

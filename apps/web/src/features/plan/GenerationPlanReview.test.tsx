@@ -76,6 +76,21 @@ describe("GenerationPlanReview", () => {
     vi.mocked(cancelGeneration).mockResolvedValue(undefined);
   });
 
+  it("shows a pending state when the plan is not yet available", () => {
+    render(
+      <GenerationPlanReview
+        status={{
+          ...baseStatus,
+          outputs: { ...baseStatus.outputs, generationPlan: null },
+        }}
+        onConfirmed={() => undefined}
+        onCancelled={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Preparing generation plan")).toBeInTheDocument();
+  });
+
   it("renders components, files, tokens, and warnings", () => {
     render(
       <GenerationPlanReview status={baseStatus} onConfirmed={() => undefined} onCancelled={() => undefined} />,

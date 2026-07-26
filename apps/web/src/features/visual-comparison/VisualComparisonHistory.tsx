@@ -1,4 +1,5 @@
 import type { VisualComparisonResult } from "@reactify/generation-contracts";
+import { describeMissingMetrics, formatMetricPercentage } from "./comparisonMetrics";
 
 interface VisualComparisonHistoryProps {
   comparisons: VisualComparisonResult[];
@@ -24,18 +25,31 @@ export function VisualComparisonHistory({ comparisons }: VisualComparisonHistory
           </tr>
         </thead>
         <tbody>
-          {comparisons.map((comparison) => (
-            <tr key={comparison.comparisonId} className="border-t border-slate-800">
-              <td className="px-3 py-2 font-mono text-xs">{comparison.comparisonId.slice(0, 8)}…</td>
-              <td className="px-3 py-2">
-                {comparison.viewport.width}×{comparison.viewport.height}
-              </td>
-              <td className="px-3 py-2">{comparison.overallSimilarityScore.toFixed(1)}%</td>
-              <td className="px-3 py-2">{comparison.pixelDifferencePercentage.toFixed(1)}%</td>
-              <td className="px-3 py-2 capitalize">{comparison.status.replaceAll("_", " ")}</td>
-              <td className="px-3 py-2 capitalize">{comparison.improvementOutcome ?? "—"}</td>
-            </tr>
-          ))}
+          {comparisons.map((comparison) => {
+            const missingMetricsReason = describeMissingMetrics(comparison);
+
+            return (
+              <tr key={comparison.comparisonId} className="border-t border-slate-800">
+                <td className="px-3 py-2 font-mono text-xs">{comparison.comparisonId.slice(0, 8)}…</td>
+                <td className="px-3 py-2">
+                  {comparison.viewport.width}×{comparison.viewport.height}
+                </td>
+                <td className="px-3 py-2">
+                  {formatMetricPercentage(comparison, comparison.overallSimilarityScore)}
+                </td>
+                <td className="px-3 py-2">
+                  {formatMetricPercentage(comparison, comparison.pixelDifferencePercentage)}
+                </td>
+                <td className="px-3 py-2">
+                  <span className="capitalize">{comparison.status.replaceAll("_", " ")}</span>
+                  {missingMetricsReason ? (
+                    <span className="mt-1 block text-xs text-slate-400">{missingMetricsReason}</span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 capitalize">{comparison.improvementOutcome ?? "—"}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

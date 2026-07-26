@@ -20,7 +20,12 @@ export function createProjectVersion(input: {
   const versionNumber = input.record.versions.length + 1;
   const projectHash = computeProjectHash(input.project);
   const version: ProjectVersionRecord = {
-    versionId: projectHash,
+    // The initial version historically used its content hash as its identifier,
+    // but later versions need their own immutable identity. Re-applying content
+    // after a rollback can legitimately produce a hash seen before; using that
+    // hash as the primary key creates duplicate version IDs and prevents the
+    // edit from being persisted.
+    versionId: input.source === "initial_generation" ? projectHash : randomUUID(),
     versionNumber,
     source: input.source,
     label: input.label,

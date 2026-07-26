@@ -1,26 +1,19 @@
+import { loadLocalEnv } from "./lib/load-local-env.js";
 import { validateEnv } from "./env.js";
 import { buildWorker } from "./worker-bootstrap.js";
+import { registerProcessLifecycle } from "./lib/process-lifecycle.js";
 
 async function main() {
+  loadLocalEnv();
   const env = validateEnv();
   const { runner, shutdown } = await buildWorker(env);
 
-  process.on("unhandledRejection", (reason) => {
-    console.error({ event: "worker_unhandled_rejection", reason: reason instanceof Error ? reason.message : String(reason) });
-  });
-
-  const handleShutdown = async (signal: string) => {
-    console.info({ event: "worker_shutdown_started", signal });
-    await runner.stop();
-    await shutdown();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => {
-    void handleShutdown("SIGINT");
-  });
-  process.on("SIGTERM", () => {
-    void handleShutdown("SIGTERM");
+  registerProcessLifecycle({
+    role: "worker",
+    onShutdown: async () => {
+      await runner.stop();
+      await shutdown();
+    },
   });
 
   runner.start();

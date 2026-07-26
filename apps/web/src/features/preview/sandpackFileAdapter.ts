@@ -26,10 +26,11 @@ function isBlockedFile(path: string): boolean {
 
 export function toSandpackFiles(
   project: GeneratedProjectV1,
-  options: { activePath?: string | null } = {},
+  options: { activePath?: string | null; compiledStylesheet?: string | null } = {},
 ): SandpackFiles {
   const files: SandpackFiles = {};
   const activePath = options.activePath ? normalizePath(options.activePath) : null;
+  const compiledStylesheet = options.compiledStylesheet ?? null;
 
   for (const file of project.files) {
     const path = normalizePath(file.path);
@@ -37,8 +38,14 @@ export function toSandpackFiles(
       continue;
     }
 
+    const isStylesheet = path === "src/index.css" || path === "src/styles.css" || path === "src/app.css";
+    const code =
+      compiledStylesheet && isStylesheet
+        ? compiledStylesheet
+        : file.content;
+
     files[`/${path}`] = {
-      code: file.content,
+      code,
       active: activePath ? path === activePath : path === normalizePath(project.entryFile),
     };
   }
@@ -46,11 +53,12 @@ export function toSandpackFiles(
   return files;
 }
 
+const SANDPACK_RUNTIME_DEPENDENCIES = new Set(["react", "react-dom"]);
+
 export function getSandpackDependencies(project: GeneratedProjectV1): Record<string, string> {
-  return {
-    ...project.dependencies,
-    ...project.devDependencies,
-  };
+  return Object.fromEntries(
+    Object.entries(project.dependencies).filter(([name]) => SANDPACK_RUNTIME_DEPENDENCIES.has(name)),
+  );
 }
 
 export function filterSandpackDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {

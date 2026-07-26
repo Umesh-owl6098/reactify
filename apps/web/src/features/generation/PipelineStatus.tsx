@@ -48,12 +48,18 @@ export function PipelineStatus({
   onRetried = () => {},
 }: PipelineStatusProps) {
   if (!status && !error && !isLoading) {
-    return null;
+    return (
+      <section className="w-full max-w-3xl" aria-live="polite" role="status">
+        <div className="rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-sm text-slate-300">
+          Waiting for generation status…
+        </div>
+      </section>
+    );
   }
 
   const activeStatus = status?.status ?? "Queued";
   const statusLabel = getStatusLabel(activeStatus);
-  const analysisError = status?.errors.find((entry) => entry.stage === "design_analysis");
+  const analysisError = status?.errors?.find((entry) => entry.stage === "design_analysis");
   const designAnalysis = status?.outputs.designAnalysis;
   const analysisMetadata = status?.analysis;
   const isPlanningReview = status?.status === "Planning" && status.awaitingPlanConfirmation;
@@ -199,6 +205,14 @@ export function PipelineStatus({
             </StatusBanner>
           ) : null}
 
+          {activeStatus === "Analyzing" && !isAnalyzing && !jobIsRetryScheduled && !analysisFailed ? (
+            <StatusBanner tone="info" title="Analyzing screenshot">
+              {job
+                ? "Waiting for the Reactify worker to report design-analysis progress."
+                : "Design analysis is in progress. Job details will appear once the worker starts."}
+            </StatusBanner>
+          ) : null}
+
           {jobIsRetryScheduled && activeStatus === "Analyzing" ? (
             <StatusBanner tone="info" title="Retry scheduled">
               {`Design analysis will retry automatically. ${job?.progressMessage ?? "Waiting for the next attempt."}`}
@@ -218,7 +232,7 @@ export function PipelineStatus({
                 ({
                   stage: "design_analysis",
                   code: job?.failureCode ?? "JOB_STALLED",
-                  message: job?.failureMessage ?? status?.errors[0]?.message ?? "Design analysis failed.",
+                  message: job?.failureMessage ?? status?.errors?.[0]?.message ?? "Design analysis failed.",
                 } as GenerationStatusResponse["errors"][number])
               }
             />
@@ -269,9 +283,24 @@ function AnalysisFailureBanner({
 }
 
 function getFailedGenerationMessage(status: GenerationStatusResponse): string {
-  const latestError = status.errors.at(-1);
+  const latestError = status.errors?.at(-1);
   if (latestError?.code === "JOB_NOT_FOUND") {
     return "The background design job was not available.";
+  }
+  if (latestError?.code === "GENERATED_PROJECT_SCHEMA_INVALID") {
+    return latestError.message || "The generated React project did not match the required schema.";
+  }
+  if (latestError?.code === "GENERATED_PROJECT_MISSING_REQUIRED_FILES") {
+    return latestError.message || "The generated project is missing required scaffold files.";
+  }
+  if (latestError?.code === "GENERATED_PROJECT_TOKEN_TRUNCATED") {
+    return "Project generation was cut off before completion. Reactify will retry automatically.";
+  }
+  if (latestError?.code === "PROVIDER_RESPONSE_NOT_JSON") {
+    return "The AI provider returned a response that was not valid JSON.";
+  }
+  if (latestError?.code === "PLAN_PROJECT_MISMATCH") {
+    return latestError.message || "The generated project did not match the confirmed plan.";
   }
 
   return latestError?.message ?? "This generation did not complete successfully.";
@@ -281,8 +310,16 @@ function getAnalysisFailureTitle(code: string): string {
   switch (code) {
     case "AI_TIMEOUT":
       return "Provider timeout";
-    case "AI_RESPONSE_VERSION_MISSING":
-      return "Malformed AI response";
+    case "GENERATED_PROJECT_SCHEMA_INVALID":
+      return "Generated project schema invalid";
+    case "GENERATED_PROJECT_MISSING_REQUIRED_FILES":
+      return "Generated project missing files";
+    case "GENERATED_PROJECT_TOKEN_TRUNCATED":
+      return "Generated project truncated";
+    case "PROVIDER_RESPONSE_NOT_JSON":
+      return "Provider response not JSON";
+    case "PLAN_PROJECT_MISMATCH":
+      return "Plan/project mismatch";
     case "ANALYSIS_SCHEMA_INVALID":
       return "Invalid design analysis schema";
     case "AI_ERROR":

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerationStatusResponse } from "@reactify/generation-contracts";
+import { generationPlanFixture } from "@reactify/test-utils";
 import { GenerationWorkspacePage } from "./GenerationWorkspacePage";
 import { useGenerationStore } from "./generationStore";
 
@@ -24,12 +25,33 @@ vi.mock("./useGeneration", () => ({
   }),
 }));
 
+const resetJobs = vi.fn();
+
 vi.mock("../jobs", () => ({
   JobStatus: () => null,
   useJob: () => ({ job: null, refresh: vi.fn() }),
   useGenerationJobs: vi.fn(),
-  useJobStore: (selector: (state: { activeJobId: string | null }) => unknown) =>
-    selector({ activeJobId: null }),
+  useJobStore: (selector: (state: { activeJobId: string | null; reset: () => void }) => unknown) =>
+    selector({ activeJobId: null, reset: resetJobs }),
+}));
+
+vi.mock("../auth/useSession", () => ({
+  useSession: () => ({
+    isAuthenticated: true,
+    isInitialized: true,
+    isLoading: false,
+    sessionError: null,
+    user: {
+      id: "11111111-1111-4111-8111-111111111111",
+      email: "user@example.com",
+      displayName: "Test User",
+      createdAt: new Date().toISOString(),
+    },
+    sessionExpiresAt: null,
+    restoreSession: vi.fn(),
+    completeSignIn: vi.fn(),
+    clear: vi.fn(),
+  }),
 }));
 
 vi.mock("../upload/ImagePreview", () => ({
@@ -132,6 +154,28 @@ describe("GenerationWorkspacePage", () => {
     expect(screen.queryByText("Generation pipeline")).not.toBeInTheDocument();
   });
 
+  it("shows loading instead of stale generation data when route id changes", () => {
+    useGenerationStore.setState({
+      generationId: "11111111-1111-4111-8111-111111111111",
+      status: {
+        ...createFailedStatus(),
+        id: "11111111-1111-4111-8111-111111111111",
+      },
+      error: null,
+      isLoading: false,
+      isPolling: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <GenerationWorkspacePage generationId="49189210-714d-431d-ac1c-1554c8cf4c74" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Loading generation details…")).toBeInTheDocument();
+    expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
+  });
+
   it("renders failed generation pipeline state", () => {
     useGenerationStore.setState({
       generationId: "49189210-714d-431d-ac1c-1554c8cf4c74",
@@ -170,6 +214,35 @@ describe("GenerationWorkspacePage", () => {
     expect(screen.getByText("Generation not found.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(loadGeneration).toHaveBeenCalledWith("49189210-714d-431d-ac1c-1554c8cf4c74");
+  });
+
+  it("renders plan review for planning generations", () => {
+    useGenerationStore.setState({
+      generationId: "49189210-714d-431d-ac1c-1554c8cf4c74",
+      status: {
+        ...createFailedStatus(),
+        status: "Planning",
+        activeStage: "generation_plan_review",
+        awaitingPlanConfirmation: true,
+        outputs: {
+          designAnalysis: null,
+          generationPlan: generationPlanFixture,
+          generatedProject: null,
+        },
+      },
+      error: null,
+      isLoading: false,
+      isPolling: true,
+    });
+
+    render(
+      <MemoryRouter>
+        <GenerationWorkspacePage generationId="49189210-714d-431d-ac1c-1554c8cf4c74" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Review generation plan")).toBeInTheDocument();
+    expect(screen.getByText("Generation pipeline")).toBeInTheDocument();
   });
 
   it("does not return null when generation is undefined after loading", () => {

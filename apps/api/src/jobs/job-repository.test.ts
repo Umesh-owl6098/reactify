@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import { ErrorCode } from "@reactify/shared";
 import { createJobConfig } from "./job-config.js";
 import { JobRepository } from "./job-repository.js";
 import { testEnv } from "../test/helpers.js";
@@ -102,5 +103,25 @@ describe("JobRepository", () => {
     expect(claimedA).not.toBeNull();
     expect(claimedA!.generationId).toBe(generationId);
     expect(claimedB?.generationId).not.toBe(generationId);
+  });
+
+  it("maps missing parent generation foreign keys to JOB_ENQUEUE_FAILED", async () => {
+    const missingGenerationId = randomUUID();
+
+    await expect(
+      repository.enqueue({
+        generationId: missingGenerationId,
+        ownerId,
+        jobType: "design_analysis",
+        payload: { generationId: missingGenerationId, imageId: randomUUID() },
+        idempotencyKey: "missing-parent",
+      }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.JOB_ENQUEUE_FAILED,
+      prismaCode: "P2003",
+    });
+
+    const jobs = await prisma.backgroundJob.findMany({ where: { generationId: missingGenerationId } });
+    expect(jobs).toHaveLength(0);
   });
 });
