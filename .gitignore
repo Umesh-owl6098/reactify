@@ -34,6 +34,7 @@ apps/api/storage/
 apps/api/test-fixtures/
 tmp/
 temp/
+.tmp/
 
 # Archives and screenshots generated during export/recovery
 *.zip
