@@ -1,58 +1,55 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import type { LocalStorageProvider } from "../storage/localStorageProvider.js";
+import type { StorageProvider } from "../storage/types.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class ExportArtifactStore {
-  constructor(private readonly rootDir: string) {}
+  constructor(private readonly storage: StorageProvider) {}
 
   async ensureReady(): Promise<void> {
-    await mkdir(this.rootDir, { recursive: true });
+    // Object storage does not require local directory initialization.
   }
 
   getRootDir(): string {
-    return this.rootDir;
+    if ("getRootDir" in this.storage && typeof this.storage.getRootDir === "function") {
+      return (this.storage as LocalStorageProvider).getRootDir();
+    }
+    return "s3";
   }
 
   buildStorageKey(generationId: string, exportId: string): string {
     this.assertSafeId(generationId, "generationId");
     this.assertSafeId(exportId, "exportId");
-    return `${generationId}/${exportId}.zip`;
+    return `exports/${generationId}/${exportId}.zip`;
   }
 
   resolveArchivePath(generationId: string, exportId: string): string {
     const key = this.buildStorageKey(generationId, exportId);
-    const resolved = path.resolve(this.rootDir, key);
-    const normalizedRoot = path.resolve(this.rootDir);
-    if (!resolved.startsWith(`${normalizedRoot}${path.sep}`) && resolved !== normalizedRoot) {
-      throw new Error("Export artifact path escapes storage root.");
+    if ("resolvePhysicalPath" in this.storage && typeof this.storage.resolvePhysicalPath === "function") {
+      return (this.storage as LocalStorageProvider).resolvePhysicalPath(key);
     }
-    return resolved;
+    return key;
   }
 
   async writeArchive(generationId: string, exportId: string, buffer: Buffer): Promise<string> {
-    const filePath = this.resolveArchivePath(generationId, exportId);
-    await mkdir(path.dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.tmp`;
-    await writeFile(tempPath, buffer);
-    await rename(tempPath, filePath);
-    return this.buildStorageKey(generationId, exportId);
+    const key = this.buildStorageKey(generationId, exportId);
+    await this.storage.putObject(key, buffer, {
+      contentType: "application/zip",
+      contentLength: buffer.length,
+    });
+    return key;
   }
 
   async readArchive(generationId: string, exportId: string): Promise<Buffer | null> {
-    const filePath = this.resolveArchivePath(generationId, exportId);
-    try {
-      return await readFile(filePath);
-    } catch {
-      return null;
-    }
+    const key = this.buildStorageKey(generationId, exportId);
+    return this.storage.getObject(key);
   }
 
   async archiveExists(generationId: string, exportId: string): Promise<boolean> {
-    const buffer = await this.readArchive(generationId, exportId);
-    return buffer !== null;
+    const key = this.buildStorageKey(generationId, exportId);
+    return this.storage.objectExists(key);
   }
 
   computeChecksum(buffer: Buffer): string {

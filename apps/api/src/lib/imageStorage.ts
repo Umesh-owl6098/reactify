@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { AllowedImageMimeType } from "@reactify/shared";
+import type { StorageProvider } from "./storage/types.js";
 
 export interface StoredImage {
   imageId: string;
@@ -23,10 +22,21 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class ImageStorage {
-  constructor(private readonly storageDir: string) {}
+  constructor(
+    private readonly storage: StorageProvider,
+    private readonly keyPrefix = "images",
+  ) {}
 
   async ensureReady(): Promise<void> {
-    await mkdir(this.storageDir, { recursive: true });
+    // Object storage does not require local directory initialization.
+  }
+
+  private dataKey(imageId: string): string {
+    return `${this.keyPrefix}/${imageId}`;
+  }
+
+  private metaKey(imageId: string): string {
+    return `${this.keyPrefix}/${imageId}.meta.json`;
   }
 
   async save(
@@ -35,11 +45,7 @@ export class ImageStorage {
     originalFilename?: string,
     ownerId?: string,
   ): Promise<StoredImage & { width?: number; height?: number; contentHash?: string }> {
-    await this.ensureReady();
-
     const imageId = randomUUID();
-    const dataPath = join(this.storageDir, imageId);
-    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
     const metadata: ImageMetadata = {
       mimeType,
       sizeBytes: buffer.length,
@@ -47,8 +53,13 @@ export class ImageStorage {
       ...(ownerId ? { ownerId } : {}),
     };
 
-    await writeFile(dataPath, buffer);
-    await writeFile(metaPath, JSON.stringify(metadata));
+    await this.storage.putObject(this.dataKey(imageId), buffer, {
+      contentType: mimeType,
+      contentLength: buffer.length,
+    });
+    await this.storage.putObject(this.metaKey(imageId), Buffer.from(JSON.stringify(metadata)), {
+      contentType: "application/json",
+    });
 
     return {
       imageId,
@@ -62,10 +73,13 @@ export class ImageStorage {
       return null;
     }
 
-    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
+    const metaRaw = await this.storage.getObject(this.metaKey(imageId));
+    if (!metaRaw) {
+      return null;
+    }
+
     try {
-      const metaRaw = await readFile(metaPath, "utf8");
-      return JSON.parse(metaRaw) as ImageMetadata;
+      return JSON.parse(metaRaw.toString("utf8")) as ImageMetadata;
     } catch {
       return null;
     }
@@ -75,7 +89,7 @@ export class ImageStorage {
     if (!UUID_PATTERN.test(imageId)) {
       return null;
     }
-    return imageId;
+    return this.dataKey(imageId);
   }
 
   async get(imageId: string): Promise<{ buffer: Buffer; mimeType: AllowedImageMimeType } | null> {
@@ -83,13 +97,17 @@ export class ImageStorage {
       return null;
     }
 
-    const dataPath = join(this.storageDir, imageId);
-    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
+    const [buffer, metaRaw] = await Promise.all([
+      this.storage.getObject(this.dataKey(imageId)),
+      this.storage.getObject(this.metaKey(imageId)),
+    ]);
+
+    if (!buffer || !metaRaw) {
+      return null;
+    }
 
     try {
-      const [buffer, metaRaw] = await Promise.all([readFile(dataPath), readFile(metaPath, "utf8")]);
-      const metadata = JSON.parse(metaRaw) as ImageMetadata;
-
+      const metadata = JSON.parse(metaRaw.toString("utf8")) as ImageMetadata;
       return {
         buffer,
         mimeType: metadata.mimeType,
@@ -104,10 +122,9 @@ export class ImageStorage {
       return;
     }
 
-    const dataPath = join(this.storageDir, imageId);
-    const metaPath = join(this.storageDir, `${imageId}.meta.json`);
-    const { unlink } = await import("node:fs/promises");
-
-    await Promise.allSettled([unlink(dataPath), unlink(metaPath)]);
+    await Promise.allSettled([
+      this.storage.deleteObject(this.dataKey(imageId)),
+      this.storage.deleteObject(this.metaKey(imageId)),
+    ]);
   }
 }

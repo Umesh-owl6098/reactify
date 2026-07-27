@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AIProvider } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
+import { LocalStorageProvider } from "../lib/storage/localStorageProvider.js";
 import { createPipelineServices } from "../pipeline/index.js";
 import { buildServer, type BuildServerOptions } from "../server.js";
 import { registerTestUser } from "./authHelpers.js";
@@ -19,6 +20,12 @@ export const testEnv: Env = {
   NODE_ENV: "test",
   IMAGE_MAX_BYTES: 10_485_760,
   IMAGE_STORAGE_DIR: "storage/images",
+  STORAGE_DRIVER: "local",
+  STORAGE_LOCAL_ROOT: "storage",
+  HOST: "127.0.0.1",
+  TRUST_PROXY: false,
+  SESSION_COOKIE_SAME_SITE: "lax" as const,
+  S3_REGION: "auto",
   ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:5174",
   AUTH_ALLOWED_ORIGINS: "http://localhost:5174",
   SESSION_COOKIE_NAME: "reactify_session",
@@ -87,7 +94,7 @@ export const testEnv: Env = {
 };
 
 export async function createTestImage(storageDir: string, ownerId?: string): Promise<string> {
-  const storage = new ImageStorage(storageDir);
+  const storage = new ImageStorage(new LocalStorageProvider(storageDir));
   const stored = await storage.save(PNG_1X1, "image/png", undefined, ownerId);
   return stored.imageId;
 }
@@ -102,7 +109,7 @@ export async function createTestServer(
 ) {
   process.env.AUTH_SKIP_ORIGIN_CHECK = "true";
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
-  const pipeline = createPipelineServices(new ImageStorage(resolvedStorageDir), {
+  const pipeline = createPipelineServices(new ImageStorage(new LocalStorageProvider(resolvedStorageDir)), {
     env: testEnv,
     aiProvider: options.aiProvider,
   });

@@ -17,11 +17,12 @@ export class SessionService {
 
   getCookieOptions() {
     const maxAgeSeconds = this.env.SESSION_TTL_HOURS * 60 * 60;
+    const sameSite = this.env.SESSION_COOKIE_SAME_SITE;
     return {
       path: "/",
       httpOnly: true,
-      sameSite: "lax" as const,
-      secure: this.env.NODE_ENV === "production",
+      sameSite,
+      secure: sameSite === "none" || this.env.NODE_ENV === "production",
       maxAge: maxAgeSeconds,
     };
   }

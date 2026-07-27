@@ -7,6 +7,16 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   IMAGE_MAX_BYTES: z.coerce.number().default(10_485_760),
   IMAGE_STORAGE_DIR: z.string().default("storage/images"),
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  STORAGE_LOCAL_ROOT: z.string().default("storage"),
+  S3_ENDPOINT: z.string().optional(),
+  S3_REGION: z.string().default("auto"),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  HOST: z.string().default("127.0.0.1"),
+  TRUST_PROXY: z.coerce.boolean().default(false),
+  SESSION_COOKIE_SAME_SITE: z.enum(["lax", "none", "strict"]).default("lax"),
   ALLOWED_ORIGINS: z.string().default("http://localhost:5173"),
   AUTH_ALLOWED_ORIGINS: z.string().default("http://localhost:5174"),
   SESSION_COOKIE_NAME: z.string().default("reactify_session"),
@@ -137,6 +147,21 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
   const pricingRegistry = createPricingRegistry(parsed, parsePricingFromEnv(env));
   validatePricingForEnabledProvider(parsed, pricingRegistry);
 
+  if (parsed.STORAGE_DRIVER === "s3") {
+    const missing = [
+      ["S3_ENDPOINT", parsed.S3_ENDPOINT],
+      ["S3_BUCKET", parsed.S3_BUCKET],
+      ["S3_ACCESS_KEY_ID", parsed.S3_ACCESS_KEY_ID],
+      ["S3_SECRET_ACCESS_KEY", parsed.S3_SECRET_ACCESS_KEY],
+    ].filter(([, value]) => !value);
+    if (missing.length > 0 && parsed.NODE_ENV !== "test") {
+      console.error(
+        `Missing required S3 storage variables: ${missing.map(([name]) => name).join(", ")}`,
+      );
+      process.exit(1);
+    }
+  }
+
   if (parsed.NODE_ENV === "production") {
     if (parsed.ALLOWED_ORIGINS.includes("*") || parsed.AUTH_ALLOWED_ORIGINS.includes("*")) {
       console.error("Wildcard origins are not allowed in production.");
@@ -145,6 +170,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
     if (parsed.SESSION_TOKEN_BYTES < 32) {
       console.error("SESSION_TOKEN_BYTES must be at least 32 in production.");
       process.exit(1);
+    }
+    if (parsed.HOST === "127.0.0.1" || parsed.HOST === "localhost") {
+      parsed.HOST = "0.0.0.0";
+    }
+    if (!parsed.TRUST_PROXY) {
+      parsed.TRUST_PROXY = true;
     }
   }
 

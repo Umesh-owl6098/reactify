@@ -11,6 +11,7 @@ import { createStageExecutors } from "./stages/index.js";
 import { GenerationStore } from "./store.js";
 import { DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
 import { ImageStorage } from "../lib/imageStorage.js";
+import { LocalStorageProvider } from "../lib/storage/localStorageProvider.js";
 import { defaultLoadPrompt } from "../prompts/loader.js";
 import { createTestImage, testEnv } from "../test/helpers.js";
 import { mkdtemp } from "node:fs/promises";
@@ -44,7 +45,7 @@ describe("PipelineRunner", () => {
 
   beforeEach(async () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-pipeline-"));
-    imageStorage = new ImageStorage(storageDir);
+    imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     imageId = await createTestImage(storageDir);
     store = new GenerationStore(DEFAULT_FEATURE_FLAGS, testEnv.MAX_REPAIR_ATTEMPTS);
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));

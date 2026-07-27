@@ -6,7 +6,7 @@ import { ExportSummarySchema } from "@reactify/generation-contracts";
 import { ErrorCode, type ErrorCode as ErrorCodeType } from "@reactify/shared";
 import type { GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { Env } from "../../env.js";
-import { resolveAppPaths } from "../../config/paths.js";
+import { createAppStorage } from "../storage/createStorageProvider.js";
 import { PermanentJobError } from "../../jobs/job-errors.js";
 import type { GenerationRecord, ProjectVersionRecord } from "../../pipeline/types.js";
 import { getActiveVersion } from "../edit/versionStore.js";
@@ -130,7 +130,7 @@ export class ExportService {
   ) {}
 
   static fromEnv(env: Env, artifactStore?: ExportArtifactStore): ExportService {
-    const store = artifactStore ?? new ExportArtifactStore(resolveAppPaths(env).exportStorageDir);
+    const store = artifactStore ?? new ExportArtifactStore(createAppStorage(env).provider);
     return new ExportService(
       {
         maxFiles: env.MAX_EXPORT_FILES,

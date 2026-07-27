@@ -8,7 +8,6 @@ import { registerProcessLifecycle } from "./lib/process-lifecycle.js";
 import { listenWithDevRetry } from "./lib/port-utils.js";
 import type { FastifyInstance } from "fastify";
 
-const API_HOST = "127.0.0.1";
 let app: FastifyInstance | null = null;
 
 registerProcessLifecycle({
@@ -56,14 +55,14 @@ async function main() {
   try {
     await listenWithDevRetry(
       async () => {
-        await app!.listen({ port: env.PORT, host: API_HOST });
+        await app!.listen({ port: env.PORT, host: env.HOST });
       },
-      { port: env.PORT, host: API_HOST },
+      { port: env.PORT, host: env.HOST },
     );
     console.info("Reactify API ready");
     console.info({
       event: "api_started",
-      host: API_HOST,
+      host: env.HOST,
       port: env.PORT,
       aiProvider: env.AI_PROVIDER,
       jobInlineExecution: env.JOB_INLINE_EXECUTION,

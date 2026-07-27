@@ -24,7 +24,7 @@ import type { JobService } from "./job-service.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { syncGenerationForJobFailure, syncGenerationForJobStart } from "./generation-sync.js";
 import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
-import { recordWorkerPresence } from "./worker-presence.js";
+import type { WorkerPresenceStore } from "./worker-presence.js";
 import { getWorkerId } from "./worker-id.js";
 import { logError, logEvent, logWarn, serializeError } from "../lib/structured-log.js";
 
@@ -36,7 +36,7 @@ export interface JobRunnerDeps {
   jobService: JobService;
   usageService?: UsageService;
   env: Env;
-  workerPresenceFile?: string;
+  workerPresenceStore?: WorkerPresenceStore;
   loadGenerationById?: (generationId: string) => Promise<GenerationRecord | null>;
   logger?: JobRunnerLogger;
 }
@@ -520,12 +520,12 @@ export class JobRunner {
   }
 
   private async recordPresence(): Promise<void> {
-    if (!this.deps.workerPresenceFile) {
+    if (!this.deps.workerPresenceStore) {
       return;
     }
 
     try {
-      await recordWorkerPresence(this.deps.workerPresenceFile, {
+      await this.deps.workerPresenceStore.record({
         pollIntervalMs: this.deps.config.pollIntervalMs,
         workerConcurrency: this.deps.config.workerConcurrency,
         registeredHandlers: [...this.deps.registry.keys()],

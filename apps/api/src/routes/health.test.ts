@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../server.js";
 import { testEnv } from "../test/helpers.js";
-import { recordWorkerPresence } from "../jobs/worker-presence.js";
+import { createWorkerPresenceStore } from "../jobs/worker-presence.js";
+import { LocalStorageProvider } from "../lib/storage/localStorageProvider.js";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -30,15 +31,22 @@ describe("health and readiness routes", () => {
 
   it("reports worker availability from system readiness endpoint", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-ready-"));
-    const presenceFile = join(storageDir, ".worker-presence.json");
-    await recordWorkerPresence(presenceFile, {
+    const provider = new LocalStorageProvider(storageDir);
+    const workerPresenceStore = createWorkerPresenceStore({
+      storage: provider,
+      presenceKey: "system/worker-presence.json",
+    });
+    await workerPresenceStore.record({
       pollIntervalMs: 1000,
       workerConcurrency: 1,
       registeredHandlers: ["design_analysis"],
     });
 
-    const env = { ...testEnv, IMAGE_STORAGE_DIR: storageDir };
-    const { app } = await buildServer(env, { storageDir, enablePersistence: false });
+    const { app } = await buildServer(testEnv, {
+      storageDir,
+      workerPresenceStore,
+      enablePersistence: false,
+    });
     const response = await app.inject({ method: "GET", url: "/api/v1/system/readiness" });
     expect(response.statusCode).toBe(200);
     expect(response.json().workerAvailable).toBe(true);

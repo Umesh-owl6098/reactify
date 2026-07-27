@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { LocalStorageProvider } from "../../lib/storage/localStorageProvider.js";
 import { MockAIProvider, generationPlanFixture } from "@reactify/test-utils";
 import {
   createSuccessfulSandboxValidationReport,
@@ -58,7 +59,7 @@ function createMockContext(store: GenerationStore, generationId: string): JobExe
 describe("createAutomaticRepairHandler", () => {
   it("moves a validated generation from Compiling to Ready after browser sandbox validation", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-repair-job-"));
-    const imageStorage = new ImageStorage(storageDir);
+    const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     const imageId = await createTestImage(storageDir);
     const store = new GenerationStore(DEFAULT_FEATURE_FLAGS, testEnv.MAX_REPAIR_ATTEMPTS);
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));
@@ -104,7 +105,7 @@ describe("createAutomaticRepairHandler", () => {
 
   it("moves a repaired generation from Repairing to Ready after successful revalidation", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-repair-revalidation-"));
-    const imageStorage = new ImageStorage(storageDir);
+    const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     const imageId = await createTestImage(storageDir);
     const store = new GenerationStore(DEFAULT_FEATURE_FLAGS, testEnv.MAX_REPAIR_ATTEMPTS);
     const registry = createDefaultRegistry(createStageExecutors(imageStorage));

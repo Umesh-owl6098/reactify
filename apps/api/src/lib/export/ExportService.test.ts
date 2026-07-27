@@ -1,3 +1,4 @@
+import { LocalStorageProvider } from "../storage/localStorageProvider.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +86,7 @@ describe("ExportService", () => {
 
   beforeEach(async () => {
     rootDir = await mkdtemp(join(tmpdir(), "reactify-export-service-"));
-    const artifactStore = new ExportArtifactStore(rootDir);
+    const artifactStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     await artifactStore.ensureReady();
     service = new ExportService(
       {
@@ -269,7 +270,7 @@ describe("ExportService", () => {
   });
 
   it("rejects oversized exports", async () => {
-    const artifactStore = new ExportArtifactStore(rootDir);
+    const artifactStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     const tinyService = new ExportService(
       {
         maxFiles: 200,

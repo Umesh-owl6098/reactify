@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LocalStorageProvider } from "../storage/localStorageProvider.js";
 import sharp from "sharp";
 import {
   createVisualCorrectionFixtureJson,
@@ -103,11 +104,13 @@ describe("visualComparisonEligibility", () => {
 describe("VisualComparisonService", () => {
   it("creates and completes a visual comparison from screenshot submission", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-visual-test-"));
-    const imageStorage = new ImageStorage(storageDir);
+    const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     await imageStorage.ensureReady();
     const stored = await imageStorage.save(PNG_1X1, "image/png");
 
-    const artifactStore = new ComparisonArtifactStore(await mkdtemp(join(tmpdir(), "reactify-artifacts-")));
+    const artifactStore = new ComparisonArtifactStore(
+      new LocalStorageProvider(await mkdtemp(join(tmpdir(), "reactify-artifacts-"))),
+    );
     await artifactStore.ensureReady();
 
     const service = VisualComparisonService.fromDeps({
@@ -146,10 +149,12 @@ describe("VisualComparisonService", () => {
 
   it("applies a visual correction and creates a new version", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-visual-test-"));
-    const imageStorage = new ImageStorage(storageDir);
+    const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     await imageStorage.ensureReady();
     const stored = await imageStorage.save(PNG_1X1, "image/png");
-    const artifactStore = new ComparisonArtifactStore(await mkdtemp(join(tmpdir(), "reactify-artifacts-")));
+    const artifactStore = new ComparisonArtifactStore(
+      new LocalStorageProvider(await mkdtemp(join(tmpdir(), "reactify-artifacts-"))),
+    );
     await artifactStore.ensureReady();
 
     const aiProvider = new MockAIProvider({ responses: [createVisualCorrectionFixtureJson()] });

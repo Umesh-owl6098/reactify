@@ -11,6 +11,7 @@ import { applyProjectPatch } from "../repair/patchApplicator.js";
 import { createProjectVersion, ensureInitialVersion } from "../edit/versionStore.js";
 import { ExportArtifactStore } from "./exportArtifactStore.js";
 import { ExportService } from "./ExportService.js";
+import { LocalStorageProvider } from "../storage/localStorageProvider.js";
 
 function createReadyRecord(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
   const projectHash = computeProjectHash(generatedProjectFixture);
@@ -87,7 +88,7 @@ describe("export download persistence", () => {
 
   beforeEach(async () => {
     rootDir = await mkdtemp(join(tmpdir(), "reactify-export-download-"));
-    artifactStore = new ExportArtifactStore(rootDir);
+    artifactStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     await artifactStore.ensureReady();
     service = new ExportService(
       {
@@ -138,7 +139,7 @@ describe("export download persistence", () => {
       return;
     }
 
-    const restartedStore = new ExportArtifactStore(rootDir);
+    const restartedStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     const restartedService = new ExportService(
       {
         maxFiles: 200,
@@ -154,8 +155,8 @@ describe("export download persistence", () => {
   });
 
   it("uses the same resolved storage path in API and worker stores", () => {
-    const workerStore = new ExportArtifactStore(rootDir);
-    const apiStore = new ExportArtifactStore(rootDir);
+    const workerStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
+    const apiStore = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     expect(workerStore.getRootDir()).toBe(apiStore.getRootDir());
     expect(workerStore.buildStorageKey(recordId(), exportId())).toBe(
       apiStore.buildStorageKey(recordId(), exportId()),

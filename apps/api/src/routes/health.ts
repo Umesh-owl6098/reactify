@@ -2,9 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { APP_VERSION } from "@reactify/shared";
 import type { Env } from "../env.js";
-import { resolveAppPaths } from "../config/paths.js";
 import { isAIProviderConfigured } from "../providers/ai-provider-config.js";
-import { isWorkerPresenceFresh, readWorkerPresence } from "../jobs/worker-presence.js";
+import { isWorkerPresenceFresh, readWorkerPresence, type WorkerPresenceStore } from "../jobs/worker-presence.js";
 import { createJobRegistry } from "../jobs/job-registry.js";
 import { verifySchemaReadiness } from "../persistence/schema-readiness.js";
 
@@ -30,6 +29,7 @@ export interface ReadyResponse {
 export interface HealthRouteDeps {
   prisma: PrismaClient;
   env: Env;
+  workerPresenceStore: WorkerPresenceStore;
 }
 
 export async function registerHealthRoutes(app: FastifyInstance, deps?: HealthRouteDeps): Promise<void> {
@@ -58,8 +58,7 @@ export async function registerHealthRoutes(app: FastifyInstance, deps?: HealthRo
     }
 
     const schema = await verifySchemaReadiness(deps.prisma);
-    const paths = resolveAppPaths(deps.env);
-    const presence = await readWorkerPresence(paths.workerPresenceFile);
+    const presence = await readWorkerPresence(deps.workerPresenceStore);
     const workerFresh = isWorkerPresenceFresh(
       presence,
       Math.max(deps.env.JOB_WORKER_POLL_INTERVAL_MS * 3, 15_000),
@@ -114,8 +113,7 @@ export async function registerHealthRoutes(app: FastifyInstance, deps?: HealthRo
       });
     }
 
-    const paths = resolveAppPaths(deps.env);
-    const presence = await readWorkerPresence(paths.workerPresenceFile);
+    const presence = await readWorkerPresence(deps.workerPresenceStore);
     const workerAvailable =
       deps.env.JOB_INLINE_EXECUTION ||
       isWorkerPresenceFresh(presence, Math.max(deps.env.JOB_WORKER_POLL_INTERVAL_MS * 3, 15_000));

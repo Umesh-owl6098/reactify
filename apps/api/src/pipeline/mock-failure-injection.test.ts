@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { LocalStorageProvider } from "../lib/storage/localStorageProvider.js";
 import { ErrorCode, DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,7 +43,7 @@ describe("mock failure injection", () => {
 
   beforeEach(async () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-mock-failure-"));
-    imageStorage = new ImageStorage(storageDir);
+    imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     imageId = await createTestImage(storageDir);
     store = new GenerationStore(DEFAULT_FEATURE_FLAGS, testEnv.MAX_REPAIR_ATTEMPTS);
   });

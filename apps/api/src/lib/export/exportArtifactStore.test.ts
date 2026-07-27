@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, afterEach } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ExportArtifactStore } from "./exportArtifactStore.js";
+import { LocalStorageProvider } from "../storage/localStorageProvider.js";
 
 describe("ExportArtifactStore", () => {
   let rootDir = "";
@@ -16,7 +17,7 @@ describe("ExportArtifactStore", () => {
 
   async function createStore() {
     rootDir = await mkdtemp(join(tmpdir(), "reactify-export-store-"));
-    store = new ExportArtifactStore(rootDir);
+    store = new ExportArtifactStore(new LocalStorageProvider(rootDir));
     await store.ensureReady();
   }
 
@@ -27,7 +28,7 @@ describe("ExportArtifactStore", () => {
     const buffer = Buffer.from("zip-content");
 
     const key = await store.writeArchive(generationId, exportId, buffer);
-    expect(key).toBe(`${generationId}/${exportId}.zip`);
+    expect(key).toBe(`exports/${generationId}/${exportId}.zip`);
 
     const loaded = await store.readArchive(generationId, exportId);
     expect(loaded?.equals(buffer)).toBe(true);
@@ -57,11 +58,6 @@ describe("ExportArtifactStore", () => {
 
   it("prevents resolving archives outside the storage root", async () => {
     await createStore();
-    const outsideRoot = join(tmpdir(), "outside-export-root");
-    await mkdir(outsideRoot, { recursive: true });
-    const evilPath = join(outsideRoot, "evil.zip");
-    await writeFile(evilPath, Buffer.from("evil"));
-
     expect(() =>
       store.resolveArchivePath("8cd48d4e-f264-490e-a7c7-a3f7b2cec7c8", "75e42c99-fef8-4f43-964c-b9918c28a0ea"),
     ).not.toThrow();

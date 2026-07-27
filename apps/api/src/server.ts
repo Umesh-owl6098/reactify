@@ -11,6 +11,10 @@ import { getAllowedOrigins, type Env } from "./env.js";
 import { ImageStorage } from "./lib/imageStorage.js";
 import { createPipelineServices } from "./pipeline/index.js";
 import { resolveAppPaths } from "./config/paths.js";
+import { createAppStorage } from "./lib/storage/createStorageProvider.js";
+import { LocalStorageProvider } from "./lib/storage/localStorageProvider.js";
+import type { AppStorage } from "./lib/storage/createStorageProvider.js";
+import { createWorkerPresenceStore, type WorkerPresenceStore } from "./jobs/worker-presence.js";
 import { getPrismaClient } from "./persistence/client.js";
 import { ImageRepository } from "./persistence/repositories/ImageRepository.js";
 import { initializePersistence } from "./persistence/initialize.js";
@@ -37,8 +41,10 @@ import { registerUsageRoutes, registerUsageErrorHandler } from "./routes/usage.j
 import { safeRecoverExpiredReservations } from "./usage/usage-recovery.js";
 
 export interface BuildServerOptions {
+  appStorage?: AppStorage;
   storageDir?: string;
   comparisonStorageDir?: string;
+  workerPresenceStore?: WorkerPresenceStore;
   pipeline?: ReturnType<typeof createPipelineServices>;
   aiProvider?: AIProvider;
   editService?: EditService;
@@ -55,16 +61,30 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== "test",
     genReqId: () => randomUUID(),
+    trustProxy: env.TRUST_PROXY,
   });
 
   const paths = resolveAppPaths(env);
-  const storageDir = options.storageDir ?? paths.imageStorageDir;
-  const comparisonStorageDir = options.comparisonStorageDir ?? paths.comparisonStorageDir;
-  const storage = new ImageStorage(storageDir);
+  const appStorage =
+    options.appStorage ??
+    (options.storageDir
+      ? {
+          provider: new LocalStorageProvider(options.storageDir),
+          localRootDir: options.storageDir,
+          workerPresenceKey: "system/worker-presence.json",
+        }
+      : createAppStorage(env));
+  const workerPresenceStore =
+    options.workerPresenceStore ??
+    createWorkerPresenceStore({
+      storage: appStorage.provider,
+      presenceKey: appStorage.workerPresenceKey,
+    });
+  const storage = new ImageStorage(appStorage.provider);
   await storage.ensureReady();
-  const artifactStore = new ComparisonArtifactStore(comparisonStorageDir);
+  const artifactStore = new ComparisonArtifactStore(appStorage.provider);
   await artifactStore.ensureReady();
-  const exportArtifactStore = new ExportArtifactStore(paths.exportStorageDir);
+  const exportArtifactStore = new ExportArtifactStore(appStorage.provider);
   await exportArtifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
@@ -129,6 +149,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
         loadGenerationById: (generationId) => persistence.generations.findById(generationId),
       },
       usageService,
+      workerPresenceStore,
     );
     usageService = jobs.usageService;
     if (options.startWorker !== false && env.JOB_INLINE_EXECUTION) {
@@ -175,7 +196,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   registerAuthHooks(app, authServices.authContext);
   await registerAuthRoutes(app, authServices.authContext, authServices.repository);
 
-  await registerHealthRoutes(app, { prisma, env });
+  await registerHealthRoutes(app, { prisma, env, workerPresenceStore });
   await registerImageRoutes(app, env, storage, authServices.authorizationService, imageRepository);
   await registerGenerationRoutes(
     app,
@@ -238,5 +259,5 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     });
   }
 
-  return { app, persistence, authServices, jobs, usageService, prisma, env, paths };
+  return { app, persistence, authServices, jobs, usageService, prisma, env, paths, appStorage, workerPresenceStore };
 }

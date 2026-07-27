@@ -17,6 +17,7 @@
     "test": "turbo test",
     "start:api": "corepack pnpm --filter @reactify/api start:api",
     "start:worker": "corepack pnpm --filter @reactify/api start:worker",
+    "start:web": "corepack pnpm --filter @reactify/web start",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "prisma generate",

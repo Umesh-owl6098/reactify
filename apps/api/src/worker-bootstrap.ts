@@ -6,7 +6,8 @@ import { ImageStorage } from "./lib/imageStorage.js";
 import { VisualComparisonService } from "./lib/visual-comparison/VisualComparisonService.js";
 import { ComparisonArtifactStore } from "./lib/visual-comparison/comparisonArtifactStore.js";
 import { createJobServices } from "./jobs/index.js";
-import { resolveAppPaths } from "./config/paths.js";
+import { createAppStorage } from "./lib/storage/createStorageProvider.js";
+import { createWorkerPresenceStore } from "./jobs/worker-presence.js";
 import { connectDatabase, disconnectDatabase, getPrismaClient, verifyDatabaseAvailability } from "./persistence/client.js";
 import { verifySchemaReadiness } from "./persistence/schema-readiness.js";
 import { logDatabaseIdentity } from "./lib/database-identity.js";
@@ -18,12 +19,16 @@ import { UsageRepository, createUsageService, wrapWithUsageMetering } from "./us
 import { safeRecoverExpiredReservations } from "./usage/usage-recovery.js";
 
 export async function buildWorker(env: Env) {
-  const paths = resolveAppPaths(env);
-  const storage = new ImageStorage(paths.imageStorageDir);
+  const appStorage = createAppStorage(env);
+  const workerPresenceStore = createWorkerPresenceStore({
+    storage: appStorage.provider,
+    presenceKey: appStorage.workerPresenceKey,
+  });
+  const storage = new ImageStorage(appStorage.provider);
   await storage.ensureReady();
-  const artifactStore = new ComparisonArtifactStore(paths.comparisonStorageDir);
+  const artifactStore = new ComparisonArtifactStore(appStorage.provider);
   await artifactStore.ensureReady();
-  const exportArtifactStore = new ExportArtifactStore(paths.exportStorageDir);
+  const exportArtifactStore = new ExportArtifactStore(appStorage.provider);
   await exportArtifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
@@ -75,7 +80,7 @@ export async function buildWorker(env: Env) {
       loadGenerationById: (generationId) => persistence.generations.findById(generationId),
     },
     usageService,
-    paths.workerPresenceFile,
+    workerPresenceStore,
   );
 
   await safeRecoverExpiredReservations(usageRepository, (event, fields) => {
@@ -91,6 +96,7 @@ export async function buildWorker(env: Env) {
     shutdown: async () => {
       await disconnectDatabase(prisma);
     },
-    paths,
+    appStorage,
+    workerPresenceStore,
   };
 }

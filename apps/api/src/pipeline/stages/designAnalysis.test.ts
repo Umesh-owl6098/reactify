@@ -1,4 +1,5 @@
 import { mkdtemp } from "node:fs/promises";
+import { LocalStorageProvider } from "../../lib/storage/localStorageProvider.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +53,7 @@ describe("designAnalysisStage", () => {
 
   beforeEach(async () => {
     storageDir = await mkdtemp(join(tmpdir(), "reactify-design-analysis-"));
-    imageStorage = new ImageStorage(storageDir);
+    imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     imageId = await createTestImage(storageDir);
   });
 
@@ -215,7 +216,7 @@ describe("designAnalysisStage", () => {
 describe("createImagePreparationStage", () => {
   it("returns IMAGE_NOT_FOUND when the uploaded image is missing", async () => {
     const storageDir = await mkdtemp(join(tmpdir(), "reactify-image-prep-"));
-    const imageStorage = new ImageStorage(storageDir);
+    const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
     const context = createContext(new MockAIProvider());
 
     const result = await createImagePreparationStage(imageStorage)(

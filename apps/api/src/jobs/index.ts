@@ -29,7 +29,7 @@ export function createJobServices(
     loadGenerationById?: (generationId: string) => Promise<import("../pipeline/types.js").GenerationRecord | null>;
   },
   usageService?: ReturnType<typeof createUsageService>,
-  workerPresenceFile?: string,
+  workerPresenceStore?: import("./worker-presence.js").WorkerPresenceStore,
 ): JobServices {
   const resolvedUsageService = usageService ?? createUsageService(env, new UsageRepository(prisma));
   const jobService = new JobService(prisma, env, deps.store, resolvedUsageService);
@@ -43,7 +43,7 @@ export function createJobServices(
     jobService,
     usageService: resolvedUsageService,
     env,
-    workerPresenceFile,
+    workerPresenceStore,
     loadGenerationById: deps.loadGenerationById,
     logger: {
       info: (event, fields) => console.info({ event, ...fields }),

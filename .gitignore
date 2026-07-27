@@ -28,8 +28,8 @@ pnpm-debug.log*
 apps/web/scripts/*-report.json
 scripts/*-report.json
 
-# Runtime storage and generated artifacts
-storage/
+# Runtime storage and generated artifacts (repo-root only)
+/storage/
 apps/api/storage/
 apps/api/test-fixtures/
 tmp/
