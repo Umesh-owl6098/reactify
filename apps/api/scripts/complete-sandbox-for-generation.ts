@@ -11,6 +11,7 @@ import { PipelineRunner } from "../src/pipeline/PipelineRunner.js";
 import { createDefaultRegistry } from "../src/pipeline/registry.js";
 import { createStageExecutors } from "../src/pipeline/stages/index.js";
 import { ImageStorage } from "../src/lib/imageStorage.js";
+import { LocalStorageProvider } from "../src/lib/storage/localStorageProvider.js";
 import { defaultLoadPrompt } from "../src/prompts/loader.js";
 import { MockAIProvider } from "@reactify/test-utils";
 import { mkdtemp } from "node:fs/promises";
@@ -48,7 +49,7 @@ async function main() {
   }
 
   const storageDir = await mkdtemp(join(tmpdir(), "reactify-complete-sandbox-"));
-  const imageStorage = new ImageStorage(storageDir);
+  const imageStorage = new ImageStorage(new LocalStorageProvider(storageDir));
   const registry = createDefaultRegistry(createStageExecutors(imageStorage));
   const runner = new PipelineRunner(registry, store, imageStorage, DEFAULT_FEATURE_FLAGS, {
     aiProvider: new MockAIProvider(),

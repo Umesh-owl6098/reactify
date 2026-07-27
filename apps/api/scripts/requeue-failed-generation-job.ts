@@ -6,8 +6,7 @@ import { validateEnv } from "../src/env.js";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
 import { createJobServices } from "../src/jobs/index.js";
 import { createPipelineServices } from "../src/pipeline/index.js";
-import { resolveAppPaths } from "../src/config/paths.js";
-import { ImageStorage } from "../src/lib/imageStorage.js";
+import { createScriptStores } from "./lib/script-storage.js";
 import { initializePersistence } from "../src/persistence/initialize.js";
 import { getPrismaClient } from "../src/persistence/client.js";
 import { resolveActiveModel, resolveUsageProviderName } from "../src/providers/ai-provider-config.js";
@@ -17,9 +16,8 @@ const GENERATION_ID = process.argv[2] ?? "95d76f53-384d-4c49-9400-c1c0a3553ad2";
 async function main() {
   loadLocalEnv();
   const env = validateEnv();
-  const paths = resolveAppPaths(env);
-  const storage = new ImageStorage(paths.imageStorageDir);
-  const pipeline = createPipelineServices(storage, { env });
+  const { imageStorage } = createScriptStores(env);
+  const pipeline = createPipelineServices(imageStorage, { env });
   const prisma = getPrismaClient(env);
   await initializePersistence(env, pipeline.store);
 

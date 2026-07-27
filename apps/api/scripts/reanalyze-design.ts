@@ -9,11 +9,10 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
-import { resolveAppPaths } from "../src/config/paths.js";
 import { validateEnv } from "../src/env.js";
 import { hydrateOwnedGenerationRecord } from "../src/lib/hydrateGenerationRecord.js";
-import { ImageStorage } from "../src/lib/imageStorage.js";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
+import { createScriptStores } from "./lib/script-storage.js";
 import { designAnalysisStage } from "../src/pipeline/stages/designAnalysis.js";
 import type { PipelineState } from "../src/pipeline/types.js";
 import { PersistenceService } from "../src/persistence/PersistenceService.js";
@@ -49,8 +48,8 @@ async function main() {
     throw new Error("Generation not found");
   }
 
-  const paths = resolveAppPaths(env);
-  const sourceImage = await new ImageStorage(paths.imageStorageDir).get(record.imageId);
+  const { imageStorage } = createScriptStores(env);
+  const sourceImage = await imageStorage.get(record.imageId);
   if (!sourceImage) {
     throw new Error("Source image is no longer available");
   }

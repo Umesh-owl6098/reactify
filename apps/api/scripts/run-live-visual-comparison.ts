@@ -12,14 +12,12 @@ import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
 import { MockAIProvider } from "@reactify/test-utils";
-import { resolveAppPaths } from "../src/config/paths.js";
 import { validateEnv } from "../src/env.js";
 import { hydrateOwnedGenerationRecord } from "../src/lib/hydrateGenerationRecord.js";
-import { ImageStorage } from "../src/lib/imageStorage.js";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
 import { reconcileGenerationLocksSync } from "../src/jobs/generation-lock-reconciliation.js";
-import { ComparisonArtifactStore } from "../src/lib/visual-comparison/comparisonArtifactStore.js";
 import { VisualComparisonService } from "../src/lib/visual-comparison/VisualComparisonService.js";
+import { createScriptStores } from "./lib/script-storage.js";
 import { PersistenceService } from "../src/persistence/PersistenceService.js";
 import { GenerationStore } from "../src/pipeline/store.js";
 import { defaultLoadPrompt } from "../src/prompts/loader.js";
@@ -88,13 +86,13 @@ async function main() {
   reconcileGenerationLocksSync(record, { editLockTimeoutMs: 0, visualCaptureTimeoutMs: 0, exportLockTimeoutMs: 0 });
   await store.persist(record);
 
-  const paths = resolveAppPaths(env);
+  const { imageStorage, comparisonArtifactStore } = createScriptStores(env);
   const service = VisualComparisonService.fromDeps({
     aiProvider: new MockAIProvider(),
     loadPrompt: defaultLoadPrompt,
     env,
-    imageStorage: new ImageStorage(paths.imageStorageDir),
-    artifactStore: new ComparisonArtifactStore(paths.comparisonStorageDir),
+    imageStorage,
+    artifactStore: comparisonArtifactStore,
   });
 
   const refreshed = store.get(generationId)!;

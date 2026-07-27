@@ -2,8 +2,7 @@
  * Manual verification for generation 76825ff8 retry after persist-before-enqueue fix.
  */
 import { validateEnv } from "../src/env.js";
-import { ImageStorage } from "../src/lib/imageStorage.js";
-import { resolveAppPaths } from "../src/config/paths.js";
+import { createScriptStores } from "./lib/script-storage.js";
 import { createJobServices } from "../src/jobs/index.js";
 import { recoverFailedGeneration } from "../src/jobs/generation-recovery.js";
 import { initializePersistence } from "../src/persistence/initialize.js";
@@ -14,9 +13,8 @@ const GENERATION_ID = "76825ff8-3eef-4202-9370-e8fd3b290742";
 
 async function main() {
   const env = validateEnv();
-  const paths = resolveAppPaths(env);
-  const storage = new ImageStorage(paths.imageStorageDir);
-  const pipeline = createPipelineServices(storage, { env });
+  const { imageStorage } = createScriptStores(env);
+  const pipeline = createPipelineServices(imageStorage, { env });
   const prisma = getPrismaClient(env);
 
   await initializePersistence(env, pipeline.store);

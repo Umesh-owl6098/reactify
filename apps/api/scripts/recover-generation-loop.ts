@@ -21,9 +21,7 @@ import { resolveAppPaths } from "../src/config/paths.js";
 import { validateEnv } from "../src/env.js";
 import { reconcileGenerationLocksSync } from "../src/jobs/generation-lock-reconciliation.js";
 import { hydrateOwnedGenerationRecord } from "../src/lib/hydrateGenerationRecord.js";
-import { ImageStorage } from "../src/lib/imageStorage.js";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
-import { ComparisonArtifactStore } from "../src/lib/visual-comparison/comparisonArtifactStore.js";
 import { VisualComparisonService } from "../src/lib/visual-comparison/VisualComparisonService.js";
 import { validateVisualFidelity } from "../src/lib/visual-fidelity/visualFidelityValidator.js";
 import { PersistenceService } from "../src/persistence/PersistenceService.js";
@@ -33,6 +31,7 @@ import { createStageExecutors } from "../src/pipeline/stages/index.js";
 import { GenerationStore } from "../src/pipeline/store.js";
 import { defaultLoadPrompt } from "../src/prompts/loader.js";
 import { createAIProvider } from "../src/providers/providerFactory.js";
+import { createScriptStores } from "./lib/script-storage.js";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("../../web/node_modules/playwright");
@@ -205,8 +204,7 @@ async function main() {
     select: { ownerId: true },
   });
 
-  const paths = resolveAppPaths(env);
-  const imageStorage = new ImageStorage(paths.imageStorageDir);
+  const { imageStorage, comparisonArtifactStore } = createScriptStores(env);
   const runner = new PipelineRunner(createDefaultRegistry(createStageExecutors(imageStorage)), store, imageStorage, DEFAULT_FEATURE_FLAGS, {
     aiProvider: new MockAIProvider(),
     loadPrompt: defaultLoadPrompt,
@@ -223,7 +221,7 @@ async function main() {
     loadPrompt: defaultLoadPrompt,
     env,
     imageStorage,
-    artifactStore: new ComparisonArtifactStore(paths.comparisonStorageDir),
+    artifactStore: comparisonArtifactStore,
   });
 
   const rounds: unknown[] = [];

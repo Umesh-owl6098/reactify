@@ -7,9 +7,8 @@ import { DEFAULT_FEATURE_FLAGS } from "@reactify/shared";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
 import { validateEnv } from "../src/env.js";
 import { ExportService } from "../src/lib/export/ExportService.js";
-import { ExportArtifactStore } from "../src/lib/export/exportArtifactStore.js";
-import { resolveAppPaths } from "../src/config/paths.js";
 import { hydrateOwnedGenerationRecord } from "../src/lib/hydrateGenerationRecord.js";
+import { createScriptStores } from "./lib/script-storage.js";
 import { PersistenceService } from "../src/persistence/PersistenceService.js";
 import { GenerationStore } from "../src/pipeline/store.js";
 
@@ -19,10 +18,9 @@ const exportId = process.argv[3] ?? "75e42c99-fef8-4f43-964c-b9918c28a0ea";
 async function main() {
   loadLocalEnv();
   const env = validateEnv();
-  const paths = resolveAppPaths(env);
-  const artifactStore = new ExportArtifactStore(paths.exportStorageDir);
-  await artifactStore.ensureReady();
-  const exportService = ExportService.fromEnv(env, artifactStore);
+  const { exportArtifactStore } = createScriptStores(env);
+  await exportArtifactStore.ensureReady();
+  const exportService = ExportService.fromEnv(env, exportArtifactStore);
 
   const prisma = new PrismaClient();
   const persistence = new PersistenceService(prisma);
@@ -45,7 +43,7 @@ async function main() {
     throw new Error("Generation hydration failed");
   }
 
-  const beforeExists = await artifactStore.archiveExists(generationId, exportId);
+  const beforeExists = await exportArtifactStore.archiveExists(generationId, exportId);
   const download = await exportService.resolveDownload(record, exportId);
   if (!download.ok) {
     throw new Error(JSON.stringify(download));
@@ -56,7 +54,7 @@ async function main() {
   }
 
   const afterRow = await prisma.projectExport.findUnique({ where: { exportId } });
-  const afterExists = await artifactStore.archiveExists(generationId, exportId);
+  const afterExists = await exportArtifactStore.archiveExists(generationId, exportId);
   const zip = await JSZip.loadAsync(download.buffer);
   const entries = Object.keys(zip.files).filter((entry) => !zip.files[entry]!.dir);
 
@@ -76,9 +74,9 @@ async function main() {
         after: {
           artifactReference: afterRow?.artifactReference,
           archiveExists: afterExists,
-          storageRoot: paths.exportStorageDir,
-          resolvedPath: artifactStore.resolveArchivePath(generationId, exportId),
-          checksum: artifactStore.computeChecksum(download.buffer),
+          storageRoot: exportArtifactStore.getRootDir(),
+          resolvedPath: exportArtifactStore.resolveArchivePath(generationId, exportId),
+          checksum: exportArtifactStore.computeChecksum(download.buffer),
           zipEntryCount: entries.length,
           filename: download.filename,
           byteLength: download.buffer.byteLength,
