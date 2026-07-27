@@ -178,7 +178,7 @@ export async function submitSandboxValidation(
     runtimeSuccess: payload.runtime.success,
   });
 
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/sandbox-validation`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/sandbox-validation`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -207,7 +207,7 @@ export async function submitSandboxValidation(
 }
 
 export async function startGeneration(imageId: string): Promise<{ generationId: string; jobId?: string }> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations`, {
+  const response = await apiFetch(`/api/v1/generations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -226,7 +226,7 @@ export async function startGeneration(imageId: string): Promise<{ generationId: 
 }
 
 export async function retryGeneration(generationId: string): Promise<string> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/retry`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/retry`, {
     method: "POST",
   });
 
@@ -241,7 +241,7 @@ export async function retryGeneration(generationId: string): Promise<string> {
 export async function fetchGenerationStatus(
   generationId: string,
 ): Promise<GenerationStatusResponse> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}`);
   const responseText = await response.text();
 
   if (!response.ok) {
@@ -284,7 +284,7 @@ export async function fetchGenerationList(input: {
   }
 
   const query = params.toString();
-  const response = await apiFetch(`${API_BASE}/api/v1/generations${query ? `?${query}` : ""}`);
+  const response = await apiFetch(`/api/v1/generations${query ? `?${query}` : ""}`);
 
   if (!response.ok) {
     throw new GenerationApiRequestError("Failed to load generation history.");
@@ -294,7 +294,7 @@ export async function fetchGenerationList(input: {
 }
 
 export async function deleteGeneration(generationId: string): Promise<DeleteGenerationResponse> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}`, {
     method: "DELETE",
   });
 
@@ -311,7 +311,7 @@ export async function confirmGenerationPlan(
 ): Promise<string> {
   const payload = ConfirmPlanRequestSchema.parse({ plan: GenerationPlanV1Schema.parse(plan) });
 
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/confirm-plan`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/confirm-plan`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -328,7 +328,7 @@ export async function confirmGenerationPlan(
 }
 
 export async function cancelGeneration(generationId: string): Promise<void> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/cancel`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/cancel`, {
     method: "POST",
   });
 
@@ -340,7 +340,7 @@ export async function cancelGeneration(generationId: string): Promise<void> {
 }
 
 export async function fetchGeneratedProjectFiles(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/files`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/files`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch generated project files.");
@@ -352,7 +352,7 @@ export async function fetchGeneratedProjectFiles(generationId: string) {
 export async function fetchGeneratedFileContent(generationId: string, path: string) {
   const query = new URLSearchParams({ path });
   const response = await apiFetch(
-    `${API_BASE}/api/v1/generations/${generationId}/files/content?${query.toString()}`,
+    `/api/v1/generations/${generationId}/files/content?${query.toString()}`,
   );
 
   if (!response.ok) {
@@ -363,7 +363,7 @@ export async function fetchGeneratedFileContent(generationId: string, path: stri
 }
 
 export async function fetchPreviewStylesCss(generationId: string): Promise<string> {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/preview-styles.css`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/preview-styles.css`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch compiled preview stylesheet.");
@@ -378,7 +378,7 @@ export function shouldShowGeneratedProject(status: GenerationStatusResponse): bo
 }
 
 export async function fetchRepairHistory(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/repairs`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/repairs`);
   if (!response.ok) {
     throw new Error("Failed to fetch repair history.");
   }
@@ -386,7 +386,7 @@ export async function fetchRepairHistory(generationId: string) {
 }
 
 export async function fetchRepairAttempt(generationId: string, attemptNumber: number) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/repairs/${attemptNumber}`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/repairs/${attemptNumber}`);
   if (!response.ok) {
     throw new Error("Failed to fetch repair attempt.");
   }
@@ -394,7 +394,7 @@ export async function fetchRepairAttempt(generationId: string, attemptNumber: nu
 }
 
 export async function retryRepair(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/repairs/retry`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/repairs/retry`, {
     method: "POST",
   });
   if (!response.ok) {
@@ -405,7 +405,7 @@ export async function retryRepair(generationId: string) {
 
 export async function createProjectExport(generationId: string, request: ExportRequest) {
   const payload = ExportRequestSchema.parse(request);
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/exports`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/exports`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -447,7 +447,7 @@ async function waitForExportReady(
 }
 
 export async function fetchExportHistory(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/exports`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/exports`);
   if (!response.ok) {
     throw new Error("Failed to fetch export history.");
   }
@@ -455,7 +455,7 @@ export async function fetchExportHistory(generationId: string) {
 }
 
 export async function fetchExportDetail(generationId: string, exportId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/exports/${exportId}`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/exports/${exportId}`);
   if (!response.ok) {
     throw new Error("Failed to fetch export detail.");
   }
@@ -464,7 +464,7 @@ export async function fetchExportDetail(generationId: string, exportId: string) 
 
 export async function downloadProjectExport(generationId: string, exportId: string, filename: string) {
   const response = await apiFetch(
-    `${API_BASE}/api/v1/generations/${generationId}/exports/${exportId}/download`,
+    `/api/v1/generations/${generationId}/exports/${exportId}/download`,
   );
   if (!response.ok) {
     throw parseGenerationApiError(await response.text(), "Failed to download project export.");
@@ -481,7 +481,7 @@ export async function downloadProjectExport(generationId: string, exportId: stri
 
 export async function createProjectEdit(generationId: string, request: NaturalLanguageEditRequest) {
   const payload = NaturalLanguageEditRequestSchema.parse(request);
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/edits`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/edits`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -494,7 +494,7 @@ export async function createProjectEdit(generationId: string, request: NaturalLa
 }
 
 export async function fetchEditHistory(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/edits`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/edits`);
   if (!response.ok) {
     throw new Error("Failed to fetch edit history.");
   }
@@ -502,7 +502,7 @@ export async function fetchEditHistory(generationId: string) {
 }
 
 export async function fetchEditDetail(generationId: string, editId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/edits/${editId}`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/edits/${editId}`);
   if (!response.ok) {
     throw new Error("Failed to fetch edit detail.");
   }
@@ -515,7 +515,7 @@ export async function submitEditClarification(
   request: EditClarificationRequest,
 ) {
   const payload = EditClarificationRequestSchema.parse(request);
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/edits/${editId}/clarification`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/edits/${editId}/clarification`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -532,7 +532,7 @@ export async function confirmProjectEdit(
   request: EditConfirmationRequest,
 ) {
   const payload = EditConfirmationRequestSchema.parse(request);
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/edits/${editId}/confirm`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/edits/${editId}/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -545,7 +545,7 @@ export async function confirmProjectEdit(
 
 export async function createVisualComparison(generationId: string, request: VisualComparisonRequest) {
   const payload = VisualComparisonRequestSchema.parse(request);
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/visual-comparisons`, {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/visual-comparisons`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -567,7 +567,7 @@ export async function submitVisualComparisonScreenshot(
 ) {
   const payload = PreviewScreenshotSubmissionSchema.parse(submission);
   const response = await apiFetch(
-    `${API_BASE}/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}/screenshot`,
+    `/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}/screenshot`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -582,7 +582,7 @@ export async function submitVisualComparisonScreenshot(
 }
 
 export async function fetchVisualComparisonHistory(generationId: string) {
-  const response = await apiFetch(`${API_BASE}/api/v1/generations/${generationId}/visual-comparisons`);
+  const response = await apiFetch(`/api/v1/generations/${generationId}/visual-comparisons`);
   if (!response.ok) {
     throw new Error("Failed to fetch visual comparison history.");
   }
@@ -591,7 +591,7 @@ export async function fetchVisualComparisonHistory(generationId: string) {
 
 export async function fetchVisualComparison(generationId: string, comparisonId: string) {
   const response = await apiFetch(
-    `${API_BASE}/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}`,
+    `/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}`,
   );
   if (!response.ok) {
     throw new Error("Failed to fetch visual comparison.");
@@ -606,7 +606,7 @@ export async function applyVisualCorrection(
 ) {
   const payload = VisualCorrectionRequestSchema.parse(request);
   const response = await apiFetch(
-    `${API_BASE}/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}/correct`,
+    `/api/v1/generations/${generationId}/visual-comparisons/${comparisonId}/correct`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
