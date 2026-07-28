@@ -12,8 +12,10 @@ import type { GenerationStore } from "../pipeline/store.js";
 import type { AuthorizationService } from "../auth/AuthorizationService.js";
 import { requireOwnedGeneration } from "../lib/generationAccess.js";
 import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
+import type { JobRunner } from "../jobs/job-runner.js";
 import type { JobService } from "../jobs/job-service.js";
 import type { PersistenceService } from "../persistence/PersistenceService.js";
+import { runInlineExportPreparation } from "../lib/export/runInlineExportPreparation.js";
 import { logError, logEvent } from "../lib/structured-log.js";
 
 function sendError(
@@ -39,7 +41,13 @@ export async function registerExportRoutes(
   authorization: AuthorizationService,
   jobService?: JobService,
   persistence?: PersistenceService,
+  options?: {
+    inlineExecution?: boolean;
+    jobRunner?: JobRunner;
+  },
 ): Promise<void> {
+  const inlineExecution = options?.inlineExecution ?? false;
+  const jobRunner = options?.jobRunner;
   const refreshOwnedGeneration = async (
     request: FastifyRequest,
     reply: FastifyReply,
@@ -107,6 +115,7 @@ export async function registerExportRoutes(
       await store.persist(record);
 
       try {
+        const runExportInline = inlineExecution && Boolean(jobRunner);
         const accepted = await jobService.enqueue({
           generationId: id,
           ownerId: request.auth!.user.id,
@@ -124,6 +133,7 @@ export async function registerExportRoutes(
             typeof idempotencyKey === "string"
               ? idempotencyKey
               : `export-${id}-${initiated.summary.versionId}-${initiated.summary.projectHash}`,
+          skipInlineDispatch: runExportInline,
         });
 
         logEvent("export_job_enqueued", {
@@ -131,7 +141,42 @@ export async function registerExportRoutes(
           exportId: initiated.exportId,
           jobId: accepted.job.jobId,
           versionId: initiated.summary.versionId,
+          inlineExecution: runExportInline,
         });
+
+        if (runExportInline && jobRunner) {
+          const inlineResult = await runInlineExportPreparation({
+            jobRunner,
+            repository: jobService.repository,
+            exportService,
+            store,
+            generationId: id,
+            exportId: initiated.exportId!,
+            jobId: accepted.job.jobId,
+          });
+
+          const currentRecord = store.get(id) ?? record;
+          await store.persist(currentRecord);
+
+          const exportSummary =
+            exportService.listSummaries(currentRecord).find((entry) => entry.exportId === initiated.exportId!) ??
+            ExportSummarySchema.parse(initiated.summary);
+
+          if (!inlineResult.ok) {
+            return sendError(
+              reply,
+              request,
+              503,
+              ErrorCode.EXPORT_FAILED,
+              inlineResult.message,
+            );
+          }
+
+          return reply.status(202).send({
+            export: exportSummary,
+            job: JobAcceptedResponseSchema.parse(accepted.job),
+          });
+        }
 
         return reply.status(202).send({
           export: ExportSummarySchema.parse(initiated.summary),

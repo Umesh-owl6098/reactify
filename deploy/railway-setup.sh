@@ -64,6 +64,12 @@ Required shared API/worker variables (names only):
 API-only:
   PORT (Railway injects)
   TRUST_PROXY=true
+  JOB_INLINE_EXECUTION=true   # required when reactify-api runs without a separate worker service
+
+Single-service API (no reactify-worker):
+  Set JOB_INLINE_EXECUTION=true on reactify-api so export_preparation runs in the API process.
+  Start command: corepack pnpm start:api (railway.api.toml)
+  Do not deploy reactify-worker.
 
 Web build variable:
   VITE_API_URL=https://<api-domain>

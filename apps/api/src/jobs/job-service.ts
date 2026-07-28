@@ -21,6 +21,8 @@ export interface EnqueueJobParams {
   idempotencyKey?: string;
   requestHash?: string;
   parentJobId?: string;
+  /** When true, the caller runs inline execution and the enqueue path must not fire-and-forget dispatch. */
+  skipInlineDispatch?: boolean;
 }
 
 export class JobService {
@@ -99,7 +101,7 @@ export class JobService {
         await this.store.persist(record);
       }
 
-      if (this.config.inlineExecution && this.inlineDispatcher) {
+      if (this.config.inlineExecution && this.inlineDispatcher && !params.skipInlineDispatch) {
         logEvent("job_inline_dispatch_scheduled", {
           jobId: job.id,
           generationId: params.generationId,

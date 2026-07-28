@@ -113,23 +113,26 @@ export async function createTestServer(
     aiProvider?: AIProvider;
     storageDir?: string;
     useDatabase?: boolean;
+    startWorker?: boolean;
     jobs?: BuildServerOptions["jobs"];
     pipelineEnv?: Partial<Env>;
   } = {},
 ) {
   process.env.AUTH_SKIP_ORIGIN_CHECK = "true";
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
-  const pipelineEnv = { ...testEnv, ...options.pipelineEnv };
+  const env = { ...testEnv, ...options.pipelineEnv };
   const pipeline = createPipelineServices(new ImageStorage(new LocalStorageProvider(resolvedStorageDir)), {
-    env: pipelineEnv,
+    env,
     aiProvider: options.aiProvider,
   });
-  const { app } = await buildServer(testEnv, {
+  const built = await buildServer(env, {
     storageDir: resolvedStorageDir,
     pipeline,
     enablePersistence: options.useDatabase ?? false,
+    startWorker: options.startWorker,
     jobs: options.jobs,
   });
+  const { app } = built;
 
   const auth = await registerTestUser(app, {
     email: `test-${randomUUID()}@example.com`,
@@ -143,6 +146,8 @@ export async function createTestServer(
     pipeline,
     authCookie: auth.cookie,
     userId: auth.userId,
+    jobs: built.jobs,
+    env,
   };
 }
 

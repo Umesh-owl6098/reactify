@@ -223,6 +223,10 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     authServices.authorizationService,
     jobs?.jobService,
     persistence ?? undefined,
+    {
+      inlineExecution: env.JOB_INLINE_EXECUTION,
+      jobRunner: jobs?.jobRunner,
+    },
   );
   await registerEditRoutes(
     app,

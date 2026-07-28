@@ -57,6 +57,16 @@ describe("provider mode configuration", () => {
     expect(env.ENABLE_REPAIR).toBe(false);
   });
 
+  it("parses Railway-style true boolean environment values as true", () => {
+    const env = validateEnv({
+      ...baseEnv,
+      AI_PROVIDER: "mock",
+      JOB_INLINE_EXECUTION: "true",
+    });
+
+    expect(env.JOB_INLINE_EXECUTION).toBe(true);
+  });
+
   it("loads the same provider mode shape for API and worker env parsing", () => {
     const pricing = {
       AI_PRICING_2_PROVIDER: "openai",
