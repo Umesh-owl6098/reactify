@@ -65,7 +65,7 @@ Your response must match this exact DesignAnalysisV1 structure:
       {
         "id": "<stable-id>",
         "name": "<what the object is, e.g. desktop monitor, paint can, crane tower>",
-        "kind": "device | tool | decoration | text | control | surface | illustration | background",
+        "kind": "device | tool | decoration | text | control | surface | illustration | chart | background",
         "box": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0 },
         "layer": <integer, higher paints in front>,
         "silhouette": "<shape of the object, e.g. rounded rectangle on a trapezoid stand>",
@@ -109,3 +109,5 @@ Visual composition rules:
 - majorObjectIds must list every object whose absence would make the result stop
   resembling the source.
 - Report low confidence rather than omitting an uncertain object.
+- Use kind "chart" for bar charts, line charts, pie charts, graphs, and other
+  data visualizations.

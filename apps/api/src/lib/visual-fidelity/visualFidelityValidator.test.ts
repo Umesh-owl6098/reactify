@@ -240,4 +240,38 @@ describe("validateVisualFidelity", () => {
     expect(withSvg.issues.filter((issue) => issue.code === "insufficient_geometry")).toHaveLength(0);
     expect(withSvg.acceptable).toBe(true);
   });
+
+  it("requires SVG geometry when the composition includes chart objects", () => {
+    const input = composition({
+      objects: [
+        object({ id: "bar-chart", name: "revenue bar chart", kind: "chart" }),
+        object({ id: "line-chart", name: "trend line chart", kind: "chart" }),
+        object({ id: "pie-chart", name: "share pie chart", kind: "chart" }),
+      ],
+      majorObjectIds: ["bar-chart", "line-chart", "pie-chart"],
+    });
+
+    const withoutSvg = validateVisualFidelity(
+      input,
+      project([
+        {
+          path: "src/App.tsx",
+          content: `const x = <div style={{background:'#2f6df6'}}><RevenueBarChart /><TrendLineChart /><SharePieChart /></div>;`,
+        },
+      ]),
+    );
+    expect(withoutSvg.issues).toContainEqual(expect.objectContaining({ code: "insufficient_geometry" }));
+
+    const withSvg = validateVisualFidelity(
+      input,
+      project([
+        {
+          path: "src/App.tsx",
+          content: `const x = <div style={{background:'#2f6df6'}}><svg viewBox="0 0 1440 900"><RevenueBarChart /><TrendLineChart /><SharePieChart /></svg></div>;`,
+        },
+      ]),
+    );
+    expect(withSvg.issues.filter((issue) => issue.code === "insufficient_geometry")).toHaveLength(0);
+    expect(withSvg.acceptable).toBe(true);
+  });
 });

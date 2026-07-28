@@ -177,7 +177,11 @@ export function validateVisualFidelity(
   // A composition dominated by non-rectangular shapes cannot be reproduced with
   // divs alone, so the absence of any SVG is itself a structural failure.
   const needsGeometry = composition.objects.filter(
-    (object) => object.kind === "tool" || object.kind === "decoration" || object.kind === "illustration",
+    (object) =>
+      object.kind === "tool" ||
+      object.kind === "decoration" ||
+      object.kind === "illustration" ||
+      object.kind === "chart",
   );
   if (needsGeometry.length >= 3 && !/<svg[\s>]/i.test(source)) {
     issues.push({

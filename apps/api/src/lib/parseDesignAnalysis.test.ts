@@ -58,4 +58,34 @@ describe("parseDesignAnalysisResponse", () => {
       expect(result.errorCode).toBe(ErrorCode.ANALYSIS_SCHEMA_INVALID);
     }
   });
+
+  it("accepts visualComposition objects with kind chart", () => {
+    const result = parseDesignAnalysisResponse(
+      createDesignAnalysisFixtureJson({
+        visualComposition: {
+          schemaVersion: "1",
+          sourceWidth: 1440,
+          sourceHeight: 900,
+          backgroundColor: "#ffffff",
+          objects: [
+            {
+              id: "revenue-chart",
+              name: "bar chart",
+              kind: "chart",
+              box: { x: 0.1, y: 0.2, width: 0.35, height: 0.4 },
+              layer: 1,
+              silhouette: "grouped vertical bars with axis labels",
+              confidence: 0.85,
+            },
+          ],
+          majorObjectIds: ["revenue-chart"],
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.designAnalysis.visualComposition?.objects[0]?.kind).toBe("chart");
+    }
+  });
 });

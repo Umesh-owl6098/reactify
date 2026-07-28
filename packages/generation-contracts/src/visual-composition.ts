@@ -40,6 +40,7 @@ export const VisualObjectKindSchema = z.enum([
   "control",
   "surface",
   "illustration",
+  "chart",
   "background",
 ]);
 
