@@ -35,6 +35,7 @@ function createContext(
     repository: {} as JobExecutionContext["repository"],
     isCancelled: async () => false,
     ownsLock: async () => true,
+    renewLease: vi.fn().mockResolvedValue(true),
     assertCanMutate: async () => undefined,
   };
 }
@@ -76,6 +77,21 @@ describe("createDesignAnalysisHandler", () => {
 
     expect(first.chainJobs?.[0]?.idempotencyKey).toBe(`plan-${generationId}-${analysisJobId}`);
     expect(second.chainJobs?.[0]?.idempotencyKey).toBe(first.chainJobs?.[0]?.idempotencyKey);
+  });
+
+  it("renews the worker lease before the long-running analysis segment", async () => {
+    const store = createStore();
+    const generationId = store.create({ ownerId: "owner", imageId: "image-1" }).id;
+    const renewLease = vi.fn().mockResolvedValue(true);
+    const runSegment = vi.fn().mockResolvedValue({ outcome: "completed" });
+    const handler = createDesignAnalysisHandler({ runSegment } as unknown as PipelineRunner);
+    const context = createContext(store, generationId, "55555555-5555-4555-8555-555555555555");
+    context.renewLease = renewLease;
+
+    await handler({ generationId, imageId: "image-1" }, context);
+
+    expect(renewLease).toHaveBeenCalledTimes(1);
+    expect(runSegment).toHaveBeenCalled();
   });
 
   it("throws when the generation record is missing", async () => {

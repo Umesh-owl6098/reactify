@@ -230,6 +230,8 @@ export class JobRunner {
         void this.deps.repository.heartbeat(jobId, this.workerId);
       }, this.deps.config.heartbeatIntervalMs);
 
+      await this.deps.repository.heartbeat(jobId, this.workerId);
+
       if (this.deps.loadGenerationById) {
         const freshGeneration = await this.deps.loadGenerationById(job.generationId);
         if (freshGeneration) {
@@ -302,6 +304,7 @@ export class JobRunner {
           );
         },
         ownsLock: () => this.deps.repository.ownsLock(jobId, this.workerId),
+        renewLease: () => this.deps.repository.heartbeat(jobId, this.workerId),
         assertCanMutate: async () => {
           if (!(await this.deps.repository.ownsLock(jobId, this.workerId))) {
             throw new JobCancelledError(ErrorCode.WORKER_INTERRUPTED, "Job lock was lost.");
@@ -334,7 +337,16 @@ export class JobRunner {
           )
         : await executeHandler();
 
+      await this.deps.repository.heartbeat(jobId, this.workerId);
+
+      const chainJobCount = result.chainJobs?.length ?? 0;
       if (!(await this.deps.repository.ownsLock(jobId, this.workerId))) {
+        logWarn("job_post_handler_lock_lost", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+          chainJobCount,
+        });
         return;
       }
 
@@ -388,6 +400,15 @@ export class JobRunner {
         this.workerId,
         (result.result ?? {}) as Prisma.InputJsonValue,
       );
+
+      if (!completed && result.chainJobs?.length) {
+        logWarn("job_chain_enqueue_skipped_incomplete_job", {
+          jobId,
+          generationId: job.generationId,
+          jobType: job.jobType,
+          chainJobCount: result.chainJobs.length,
+        });
+      }
 
       if (completed && result.chainJobs?.length) {
         for (const chained of result.chainJobs) {

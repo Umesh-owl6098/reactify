@@ -52,6 +52,7 @@ function createMockContext(store: GenerationStore, generationId: string): JobExe
     repository: {} as JobExecutionContext["repository"],
     isCancelled: async () => false,
     ownsLock: async () => true,
+    renewLease: vi.fn().mockResolvedValue(true),
     assertCanMutate: async () => undefined,
   };
 }

@@ -43,6 +43,8 @@ export function createDesignAnalysisHandler(runner: PipelineRunner) {
       DesignAnalysisProgress.ANALYZING.message,
     );
 
+    await context.renewLease();
+
     const result = await runner.runSegment(data.generationId, undefined, {
       stopAfter: "design_analysis",
       onProgress: (progress: number, message: string) => context.progress.report(progress, message),

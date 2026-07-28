@@ -14,6 +14,7 @@ export interface JobExecutionContext {
   repository: JobRepository;
   isCancelled(): Promise<boolean>;
   ownsLock(): Promise<boolean>;
+  renewLease(): Promise<boolean>;
   assertCanMutate(): Promise<void>;
 }
 
