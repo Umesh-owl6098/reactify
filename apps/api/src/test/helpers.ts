@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AIProvider } from "@reactify/shared";
+import { DEFAULT_DEMO_USER_ID } from "@reactify/shared";
 import type { Env } from "../env.js";
 import { ImageStorage } from "../lib/imageStorage.js";
 import { LocalStorageProvider } from "../lib/storage/localStorageProvider.js";
@@ -94,6 +95,7 @@ export const testEnv: Env = {
   JOB_RETRY_MAX_DELAY_MS: 500,
   JOB_BATCH_SIZE: 5,
   WORKER_CONCURRENCY: 2,
+  AUTH_MODE: "session" as const,
   JOB_INLINE_EXECUTION: false,
   JOB_STALE_RECOVERY_INTERVAL_MS: 60_000,
   JOB_STALE_GENERATION_THRESHOLD_MS: 120_000,
@@ -134,11 +136,14 @@ export async function createTestServer(
   });
   const { app } = built;
 
-  const auth = await registerTestUser(app, {
-    email: `test-${randomUUID()}@example.com`,
-    password: "secure-password-123",
-    displayName: "Test User",
-  });
+  const auth =
+    env.AUTH_MODE === "disabled"
+      ? { cookie: "", userId: DEFAULT_DEMO_USER_ID }
+      : await registerTestUser(app, {
+          email: `test-${randomUUID()}@example.com`,
+          password: "secure-password-123",
+          displayName: "Test User",
+        });
 
   return {
     app,

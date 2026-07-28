@@ -83,7 +83,7 @@ export async function registerJobRoutes(
     }
 
     const { jobId } = request.params as { jobId: string };
-    const job = await jobService.repository.getOwnedJob(jobId, request.auth.user.id);
+    const job = await jobService.resolveOwnedJob(jobId, request.auth.user.id);
     if (!job) {
       return sendError(reply, request, 404, ErrorCode.JOB_NOT_FOUND, "Job not found.");
     }
@@ -104,7 +104,7 @@ export async function registerJobRoutes(
     }
 
     const { jobId } = request.params as { jobId: string };
-    const job = await jobService.repository.getOwnedJob(jobId, request.auth.user.id);
+    const job = await jobService.resolveOwnedJob(jobId, request.auth.user.id);
     if (!job) {
       return sendError(reply, request, 404, ErrorCode.JOB_NOT_FOUND, "Job not found.");
     }

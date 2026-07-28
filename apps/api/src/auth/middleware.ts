@@ -5,6 +5,7 @@ import type { Env } from "../env.js";
 import type { AuthService } from "./AuthService.js";
 import type { SessionService } from "./SessionService.js";
 import { getAuthAllowedOrigins } from "../env.js";
+import { createDisabledAuthContext, isAuthDisabled } from "./auth-mode.js";
 
 export interface AuthContext {
   authService: AuthService;
@@ -66,10 +67,26 @@ export function registerAuthHooks(app: import("fastify").FastifyInstance, contex
         request.auth = session;
       }
     }
+
+    if (!request.auth && isAuthDisabled(context.env)) {
+      request.auth = createDisabledAuthContext(context.env);
+    }
   });
 }
 
-export function requireAuth(request: FastifyRequest, reply: FastifyReply): request is FastifyRequest & { auth: NonNullable<FastifyRequest["auth"]> } {
+export function requireAuth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  env?: Env,
+): request is FastifyRequest & { auth: NonNullable<FastifyRequest["auth"]> } {
+  const resolvedEnv = env ?? request.server.reactifyEnv;
+  if (resolvedEnv && isAuthDisabled(resolvedEnv)) {
+    if (!request.auth) {
+      request.auth = createDisabledAuthContext(resolvedEnv);
+    }
+    return true;
+  }
+
   if (!request.auth) {
     sendAuthError(reply, request, 401, ErrorCode.AUTHENTICATION_REQUIRED, "Authentication required.");
     return false;

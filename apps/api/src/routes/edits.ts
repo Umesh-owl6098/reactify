@@ -58,6 +58,7 @@ export async function registerEditRoutes(
       persistence,
       generationId,
       ownerId: request.auth!.user.id,
+      authorization,
     });
     if (!refreshed) {
       sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -245,6 +246,7 @@ export async function registerVersionRoutes(
       persistence,
       generationId,
       ownerId: request.auth!.user.id,
+      authorization,
     });
   };
 

@@ -55,7 +55,7 @@ export interface EnqueueJobInput {
 
 export interface ListJobsQuery {
   generationId: string;
-  ownerId: string;
+  ownerId?: string;
   status?: BackgroundJobStatus;
   jobType?: BackgroundJobType;
   limit: number;
@@ -194,7 +194,7 @@ export class JobRepository {
   async listJobs(query: ListJobsQuery): Promise<{ total: number; items: BackgroundJobRecord[] }> {
     const where: Prisma.BackgroundJobWhereInput = {
       generationId: query.generationId,
-      ownerId: query.ownerId,
+      ...(query.ownerId ? { ownerId: query.ownerId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.jobType ? { jobType: query.jobType } : {}),
     };

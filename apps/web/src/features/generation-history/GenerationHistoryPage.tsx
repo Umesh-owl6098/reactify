@@ -16,6 +16,12 @@ export function GenerationHistoryPage() {
     useGenerationHistory();
 
   useEffect(() => {
+    if (!isLoading && total === 0 && !error) {
+      navigate("/generations/new", { replace: true });
+    }
+  }, [error, isLoading, navigate, total]);
+
+  useEffect(() => {
     resetActiveGenerationSession();
   }, []);
 

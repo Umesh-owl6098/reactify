@@ -43,6 +43,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
+    env: {
+      VITE_AUTH_MODE: "session",
+    },
     // The e2e suite is driven by Playwright against a running stack.
     exclude: ["node_modules/**", "dist/**", "e2e/**"],
   },

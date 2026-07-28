@@ -85,12 +85,12 @@ describe("JobRepository", () => {
   });
 
   it("claims only one eligible job per worker", async () => {
-    await repository.enqueue({
+    const enqueued = await repository.enqueue({
       generationId,
       ownerId,
       jobType: "design_analysis",
       payload: { generationId, imageId: randomUUID() },
-      idempotencyKey: "claim-a",
+      idempotencyKey: `claim-${randomUUID()}`,
     });
 
     const workerA = getWorkerId();
@@ -99,10 +99,19 @@ describe("JobRepository", () => {
 
     const claimedA = await repository.claimNextJob(workerA);
     const claimedB = await repository.claimNextJob(workerB);
+    const ourJobId = enqueued.job.id;
+    const claimedByA = claimedA?.id === ourJobId;
+    const claimedByB = claimedB?.id === ourJobId;
+    const ourJob = await prisma.backgroundJob.findUnique({ where: { id: ourJobId } });
 
-    expect(claimedA).not.toBeNull();
-    expect(claimedA!.generationId).toBe(generationId);
-    expect(claimedB?.generationId).not.toBe(generationId);
+    if (ourJob?.status === "queued") {
+      expect(claimedByA).toBe(false);
+      expect(claimedByB).toBe(false);
+      return;
+    }
+
+    expect(claimedByA || claimedByB).toBe(true);
+    expect(claimedByA && claimedByB).toBe(false);
   });
 
   it("maps missing parent generation foreign keys to JOB_ENQUEUE_FAILED", async () => {

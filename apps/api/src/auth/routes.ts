@@ -10,6 +10,7 @@ import {
 import { ErrorCode } from "@reactify/shared";
 import type { AuthContext } from "./middleware.js";
 import { requireAuth } from "./middleware.js";
+import { disabledSessionResponse, isAuthDisabled } from "./auth-mode.js";
 import type { AuthRepository } from "./AuthRepository.js";
 
 function sendError(
@@ -32,6 +33,9 @@ function sendError(
 
 export async function registerAuthRoutes(app: FastifyInstance, context: AuthContext, repository: AuthRepository): Promise<void> {
   app.post("/api/v1/auth/register", async (request, reply) => {
+    if (isAuthDisabled(context.env)) {
+      return sendError(reply, request, 403, ErrorCode.FORBIDDEN, "Authentication is disabled.");
+    }
     const result = await context.authService.register({
       body: request.body,
       reply,
@@ -48,6 +52,9 @@ export async function registerAuthRoutes(app: FastifyInstance, context: AuthCont
   });
 
   app.post("/api/v1/auth/sign-in", async (request, reply) => {
+    if (isAuthDisabled(context.env)) {
+      return sendError(reply, request, 403, ErrorCode.FORBIDDEN, "Authentication is disabled.");
+    }
     const parsed = SignInRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return sendError(reply, request, 401, ErrorCode.INVALID_CREDENTIALS, "Invalid email or password.");
@@ -76,6 +83,9 @@ export async function registerAuthRoutes(app: FastifyInstance, context: AuthCont
   });
 
   app.get("/api/v1/auth/session", async (request, reply) => {
+    if (isAuthDisabled(context.env)) {
+      return reply.send(SessionResponseSchema.parse(disabledSessionResponse(context.env)));
+    }
     const token = request.cookies[context.env.SESSION_COOKIE_NAME];
     const session = await context.authService.getSession(token);
     return reply.send(SessionResponseSchema.parse(session));

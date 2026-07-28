@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from "@reactify/shared";
+import type { Env } from "../env.js";
 
 export interface AuthUserContext {
   id: string;
@@ -30,5 +31,9 @@ export function toAuthenticatedUser(user: AuthUserContext): AuthenticatedUser {
 declare module "fastify" {
   interface FastifyRequest {
     auth?: AuthenticatedRequestContext;
+  }
+
+  interface FastifyInstance {
+    reactifyEnv?: Env;
   }
 }

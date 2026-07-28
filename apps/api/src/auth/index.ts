@@ -15,7 +15,7 @@ export function createAuthServices(env: Env, prisma: PrismaClient, store: Genera
   const sessionService = new SessionService(prisma, env);
   const rateLimiter = new AuthRateLimiter(env);
   const authService = new AuthService(env, repository, passwordService, sessionService, rateLimiter);
-  const authorizationService = new AuthorizationService(store, repository, imageStorage);
+  const authorizationService = new AuthorizationService(store, repository, env, imageStorage);
 
   return {
     repository,

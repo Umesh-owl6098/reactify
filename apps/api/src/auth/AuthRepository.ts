@@ -73,6 +73,13 @@ export class AuthRepository {
     });
   }
 
+  findImageById(imageId: string) {
+    return this.prisma.uploadedImage.findFirst({
+      where: { id: imageId },
+      select: { id: true },
+    });
+  }
+
   recordEvent(input: {
     userId?: string;
     eventType: string;

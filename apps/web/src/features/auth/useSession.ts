@@ -10,6 +10,7 @@ import {
   resetInitialSessionRestoreFlag,
   shouldStartInitialSessionRestore,
 } from "./session-restore.js";
+import { getDemoUser, isAuthDisabled } from "./authMode.js";
 
 export function useSession() {
   const user = useAuthStore((state) => state.user);
@@ -68,10 +69,15 @@ export function useSession() {
   }, [clear, setInitialized, setLoading, setSessionError, setSessionStatus, setUser]);
 
   useEffect(() => {
+    if (isAuthDisabled()) {
+      establishSession(getDemoUser(), null);
+      return;
+    }
+
     if (!isInitialized && shouldStartInitialSessionRestore()) {
       void restoreSession();
     }
-  }, [isInitialized, restoreSession]);
+  }, [establishSession, isInitialized, restoreSession]);
 
   const completeSignIn = useCallback(
     (nextUser: NonNullable<typeof user>, nextSessionExpiresAt?: string | null) => {
@@ -102,7 +108,9 @@ export function useSignOut() {
 
   return useCallback(async () => {
     try {
-      await signOutAccount();
+      if (!isAuthDisabled()) {
+        await signOutAccount();
+      }
     } finally {
       invalidateSessionRestore();
       resetInitialSessionRestoreFlag();
@@ -110,7 +118,7 @@ export function useSignOut() {
       setSessionStatus("unauthenticated");
       useAuthStore.getState().setInitialized(true);
       useAuthStore.getState().setLoading(false);
-      navigate("/sign-in", { replace: true });
+      navigate(isAuthDisabled() ? "/" : "/sign-in", { replace: true });
     }
   }, [clear, navigate, setSessionStatus]);
 }

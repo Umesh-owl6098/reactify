@@ -19,11 +19,11 @@ export function requireOwnedGeneration(
   generationId: string,
   sendError: SendErrorFn,
 ): GenerationRecord | null {
-  if (!requireAuth(request, reply)) {
+  if (!requireAuth(request, reply, authorization.getEnv())) {
     return null;
   }
 
-  const record = authorization.getOwnedGeneration(request.auth.user.id, generationId);
+  const record = authorization.getOwnedGeneration(request.auth!.user.id, generationId);
   if (!record) {
     sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
     return null;
@@ -39,11 +39,11 @@ export async function requireOwnedImage(
   imageId: string,
   sendError: SendErrorFn,
 ): Promise<boolean> {
-  if (!requireAuth(request, reply)) {
+  if (!requireAuth(request, reply, authorization.getEnv())) {
     return false;
   }
 
-  const ownsImage = await authorization.userOwnsImage(request.auth.user.id, imageId);
+  const ownsImage = await authorization.userOwnsImage(request.auth!.user.id, imageId);
   if (!ownsImage) {
     sendError(reply, request, 404, ErrorCode.IMAGE_NOT_FOUND, "Image not found.");
     return false;

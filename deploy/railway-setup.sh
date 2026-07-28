@@ -28,6 +28,7 @@ cat <<'EOF'
 
 Required shared API/worker variables (names only):
   NODE_ENV=production
+  AUTH_MODE=disabled
   DATABASE_URL=${{Postgres.DATABASE_URL}}
   AI_PROVIDER=openai
   OPENAI_API_KEY
@@ -73,6 +74,7 @@ Single-service API (no reactify-worker):
 
 Web build variable:
   VITE_API_URL=https://<api-domain>
+  VITE_AUTH_MODE=disabled
 
 Deploy order:
   1. Postgres + bucket + shared vars on reactify-api and reactify-worker

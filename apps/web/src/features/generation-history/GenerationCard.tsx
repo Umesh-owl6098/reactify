@@ -48,7 +48,7 @@ export function GenerationCard({ generation }: GenerationCardProps) {
         <div>
           <dt className="text-slate-500">Similarity</dt>
           <dd>
-            {generation.latestSimilarityScore !== null
+            {typeof generation.latestSimilarityScore === "number"
               ? `${generation.latestSimilarityScore.toFixed(1)}%`
               : "—"}
           </dd>

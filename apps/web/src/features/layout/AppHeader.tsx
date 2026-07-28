@@ -1,11 +1,12 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useSession, useSignOut } from "../auth/useSession";
+import { useSession } from "../auth/useSession";
+import { isAuthDisabled } from "../auth/authMode";
 import { startNewGeneration } from "../generation/startNewGeneration";
 
 export function AppHeader() {
   const navigate = useNavigate();
+  const authDisabled = isAuthDisabled();
   const { user } = useSession();
-  const signOut = useSignOut();
 
   return (
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
@@ -14,24 +15,24 @@ export function AppHeader() {
           Reactify
         </Link>
         <div className="flex items-center gap-4 text-sm text-slate-200">
-          {user ? (
+          {(authDisabled || user) && (
+            <button
+              type="button"
+              onClick={() => startNewGeneration(navigate)}
+              className="rounded-md bg-indigo-500 px-3 py-1.5 font-medium text-white hover:bg-indigo-400"
+            >
+              New generation
+            </button>
+          )}
+          {!authDisabled && user ? (
             <>
-              <button
-                type="button"
-                onClick={() => startNewGeneration(navigate)}
-                className="rounded-md bg-indigo-500 px-3 py-1.5 font-medium text-white hover:bg-indigo-400"
-              >
-                New generation
-              </button>
               <span>Signed in as {user.displayName}</span>
               <Link to="/account" className="rounded-md px-2 py-1 hover:bg-slate-800">
                 Account
               </Link>
-              <button type="button" onClick={() => void signOut()} className="rounded-md px-2 py-1 hover:bg-slate-800">
-                Sign out
-              </button>
             </>
-          ) : (
+          ) : null}
+          {!authDisabled && !user ? (
             <>
               <Link to="/sign-in" className="rounded-md px-2 py-1 hover:bg-slate-800">
                 Sign in
@@ -40,7 +41,7 @@ export function AppHeader() {
                 Register
               </Link>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </header>

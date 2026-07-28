@@ -35,6 +35,8 @@ const EnvSchema = z.object({
   SESSION_COOKIE_SAME_SITE: z.enum(["lax", "none", "strict"]).default("lax"),
   ALLOWED_ORIGINS: z.string().default("http://localhost:5173"),
   AUTH_ALLOWED_ORIGINS: z.string().default("http://localhost:5174"),
+  AUTH_MODE: z.enum(["session", "disabled"]).default("disabled"),
+  DEFAULT_DEMO_USER_ID: z.string().uuid().optional(),
   SESSION_COOKIE_NAME: z.string().default("reactify_session"),
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168),
   SESSION_TOKEN_BYTES: z.coerce.number().int().min(32).max(64).default(32),

@@ -24,6 +24,9 @@ describe("JobService.retryJob", () => {
       created: true,
     });
     const service = Object.create(JobService.prototype) as JobService;
+    Object.defineProperty(service, "env", {
+      value: { AUTH_MODE: "session" },
+    });
     Object.defineProperty(service, "repository", {
       value: {
         getOwnedJob: vi.fn().mockResolvedValue(failedJob),
@@ -48,6 +51,9 @@ describe("JobService.retryJob", () => {
 
   it("does not overlap an already active mutation job", async () => {
     const service = Object.create(JobService.prototype) as JobService;
+    Object.defineProperty(service, "env", {
+      value: { AUTH_MODE: "session" },
+    });
     Object.defineProperty(service, "repository", {
       value: {
         getOwnedJob: vi.fn().mockResolvedValue({

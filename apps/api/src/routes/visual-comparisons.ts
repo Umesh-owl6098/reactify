@@ -65,6 +65,7 @@ export async function registerVisualComparisonRoutes(
       persistence,
       generationId,
       ownerId: request.auth!.user.id,
+      authorization,
     });
     if (!refreshed) {
       sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");

@@ -23,6 +23,8 @@ import { validatePlanDependencies } from "../lib/allowlist.js";
 import { ensureImagePersisted } from "../lib/imagePersistence.js";
 import { sendPersistenceError } from "../lib/persistenceRouteErrors.js";
 import { requireAuth } from "../auth/middleware.js";
+import { isAuthDisabled } from "../auth/auth-mode.js";
+import type { Env } from "../env.js";
 import type { AuthorizationService } from "../auth/AuthorizationService.js";
 import { requireOwnedGeneration } from "../lib/generationAccess.js";
 import type { ImageStorage } from "../lib/imageStorage.js";
@@ -99,7 +101,9 @@ export async function registerGenerationRoutes(
 
     try {
       const result = await persistence.generations.listSummaries({
-        ownerId: request.auth!.user.id,
+        ownerId: isAuthDisabled(request.server.reactifyEnv ?? ({ AUTH_MODE: "session" } as Env))
+          ? undefined
+          : request.auth!.user.id,
         status: query.status,
         limit,
         offset,
@@ -317,6 +321,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!hydrated) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -373,6 +378,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!record) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -532,6 +538,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!hydrated) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -664,6 +671,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!hydrated) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -707,6 +715,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!hydrated) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
@@ -774,6 +783,7 @@ export async function registerGenerationRoutes(
         persistence,
         generationId: id,
         ownerId: request.auth!.user.id,
+        authorization,
       });
       if (!hydrated) {
         return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");

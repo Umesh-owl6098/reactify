@@ -12,6 +12,7 @@ import { CANCELLABLE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from "./job-types.js"
 import { syncGenerationForJobStart } from "./generation-sync.js";
 import { resolveOperationAIConfig, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import { logError, logEvent } from "../lib/structured-log.js";
+import { isAuthDisabled } from "../auth/auth-mode.js";
 
 export interface EnqueueJobParams {
   generationId: string;
@@ -42,6 +43,13 @@ export class JobService {
 
   setInlineDispatcher(dispatcher: (jobId: string) => Promise<void>): void {
     this.inlineDispatcher = dispatcher;
+  }
+
+  async resolveOwnedJob(jobId: string, ownerId: string) {
+    if (isAuthDisabled(this.env)) {
+      return this.repository.getById(jobId);
+    }
+    return this.repository.getOwnedJob(jobId, ownerId);
   }
 
   async enqueue(params: EnqueueJobParams): Promise<{ job: JobAcceptedResponse; created: boolean }> {
@@ -207,13 +215,13 @@ export class JobService {
   }
 
   async getOwnedJobStatus(jobId: string, ownerId: string) {
-    const job = await this.repository.getOwnedJob(jobId, ownerId);
+    const job = await this.resolveOwnedJob(jobId, ownerId);
     return this.toStatusResponse(job);
   }
 
   async listGenerationJobs(query: {
     generationId: string;
-    ownerId: string;
+    ownerId?: string;
     status?: string;
     jobType?: string;
     limit: number;
@@ -222,7 +230,7 @@ export class JobService {
   }) {
     const result = await this.repository.listJobs({
       generationId: query.generationId,
-      ownerId: query.ownerId,
+      ownerId: isAuthDisabled(this.env) ? undefined : query.ownerId,
       status: query.status as Parameters<JobRepository["listJobs"]>[0]["status"],
       jobType: query.jobType as BackgroundJobType | undefined,
       limit: query.limit,
@@ -242,7 +250,7 @@ export class JobService {
   }
 
   async cancelJob(jobId: string, ownerId: string) {
-    const job = await this.repository.getOwnedJob(jobId, ownerId);
+    const job = await this.resolveOwnedJob(jobId, ownerId);
     if (!job) {
       return { ok: false as const, code: ErrorCode.JOB_NOT_FOUND };
     }
@@ -259,7 +267,7 @@ export class JobService {
   }
 
   async retryJob(jobId: string, ownerId: string) {
-    const job = await this.repository.getOwnedJob(jobId, ownerId);
+    const job = await this.resolveOwnedJob(jobId, ownerId);
     if (!job) {
       return { ok: false as const, code: ErrorCode.JOB_NOT_FOUND };
     }

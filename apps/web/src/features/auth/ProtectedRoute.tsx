@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { isSessionFailure, isSessionLoading } from "./session-status.js";
+import { isAuthDisabled } from "./authMode.js";
 import { useSession } from "./useSession.js";
 
 function SessionLoadingState() {
@@ -31,6 +32,10 @@ function SessionErrorState({ message, onRetry }: { message: string; onRetry: () 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { isAuthenticated, isInitialized, isLoading, sessionStatus, sessionError, restoreSession } = useSession();
+
+  if (isAuthDisabled()) {
+    return children;
+  }
 
   if (isSessionLoading(sessionStatus, isInitialized) || isLoading) {
     return <SessionLoadingState />;

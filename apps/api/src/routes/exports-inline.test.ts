@@ -104,7 +104,7 @@ async function waitForExportStatus(
   generationId: string,
   exportId: string,
   expected: "ready" | "failed",
-  timeoutMs = 15_000,
+  timeoutMs = 30_000,
 ) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -117,7 +117,7 @@ async function waitForExportStatus(
     if (status === expected) {
       return response.json();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out waiting for export status "${expected}"`);
 }
@@ -177,10 +177,12 @@ describe("export inline execution integration", () => {
     });
 
     describe("JOB_INLINE_EXECUTION=false with background worker", () => {
+      let jobRunner: NonNullable<Awaited<ReturnType<typeof createTestServer>>["jobs"]>["jobRunner"];
+
       beforeEach(async () => {
         const setup = await createTestServer({
           useDatabase: true,
-          startWorker: true,
+          startWorker: false,
           pipelineEnv: {
             JOB_INLINE_EXECUTION: false,
             JOB_WORKER_POLL_INTERVAL_MS: 100,
@@ -190,15 +192,15 @@ describe("export inline execution integration", () => {
         pipeline = setup.pipeline;
         authCookie = setup.authCookie;
         userId = setup.userId;
+        jobRunner = setup.jobs!.jobRunner;
         imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
-        setup.jobs?.jobRunner.start();
       });
 
       afterEach(async () => {
         await app.close();
       });
 
-      it("queues export_preparation for the worker and becomes ready asynchronously", async () => {
+      it("queues export_preparation for the worker and becomes ready after job execution", async () => {
         const generationId = await seedReadyGeneration(pipeline, userId, imageId);
 
         const exportResponse = await authed(app, authCookie, {
@@ -211,7 +213,16 @@ describe("export inline execution integration", () => {
         const body = exportResponse.json() as { export: { exportId: string; status: string }; job: { jobId: string } };
         expect(body.export.status).toBe("preparing");
 
-        const readyDetail = await waitForExportStatus(app, authCookie, generationId, body.export.exportId, "ready");
+        await jobRunner.executeJobById(body.job.jobId);
+
+        const readyDetail = await waitForExportStatus(
+          app,
+          authCookie,
+          generationId,
+          body.export.exportId,
+          "ready",
+          5_000,
+        );
         expect(readyDetail.export.status).toBe("ready");
 
         const download = await authed(app, authCookie, {

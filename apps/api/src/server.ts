@@ -39,6 +39,7 @@ import { createJobServices, type JobServices } from "./jobs/index.js";
 import { UsageRepository, createUsageService, wrapWithUsageMetering } from "./usage/index.js";
 import { registerUsageRoutes, registerUsageErrorHandler } from "./routes/usage.js";
 import { safeRecoverExpiredReservations } from "./usage/usage-recovery.js";
+import { ensureDemoUser } from "./auth/ensure-demo-user.js";
 
 export interface BuildServerOptions {
   appStorage?: AppStorage;
@@ -63,6 +64,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
     genReqId: () => randomUUID(),
     trustProxy: env.TRUST_PROXY,
   });
+  app.decorate("reactifyEnv", env);
 
   const paths = resolveAppPaths(env);
   const appStorage =
@@ -88,6 +90,7 @@ export async function buildServer(env: Env, options: BuildServerOptions = {}) {
   await exportArtifactStore.ensureReady();
 
   const prisma = getPrismaClient(env);
+  await ensureDemoUser(prisma, env);
   const imageRepository = new ImageRepository(prisma);
 
   let persistence = options.persistence ?? null;

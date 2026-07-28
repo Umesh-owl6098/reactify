@@ -1,9 +1,10 @@
-import { Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AccountPage } from "../features/account/AccountPage";
 import { UsagePage } from "../features/usage/UsagePage";
 import { ProtectedRoute } from "../features/auth/ProtectedRoute";
 import { RegisterPage } from "../features/auth/RegisterPage";
 import { SignInPage } from "../features/auth/SignInPage";
+import { isAuthDisabled } from "../features/auth/authMode";
 import { useSession } from "../features/auth/useSession";
 import { GenerationHistoryPage } from "../features/generation-history/GenerationHistoryPage";
 import { GenerationWorkspacePage } from "../features/generation/GenerationWorkspacePage";
@@ -52,11 +53,26 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const authDisabled = isAuthDisabled();
+
   return (
     <SessionBootstrap>
       <Routes>
-        <Route path="/sign-in" element={<SignInPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        {!authDisabled ? (
+          <>
+            <Route path="/sign-in" element={<SignInPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/account/usage" element={<UsagePage />} />
+          </>
+        ) : (
+          <>
+            <Route path="/sign-in" element={<Navigate to="/" replace />} />
+            <Route path="/register" element={<Navigate to="/" replace />} />
+            <Route path="/account" element={<Navigate to="/" replace />} />
+            <Route path="/account/usage" element={<Navigate to="/" replace />} />
+          </>
+        )}
         <Route
           path="/"
           element={
@@ -81,8 +97,6 @@ export function App() {
             </ProtectedLayout>
           }
         />
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/account/usage" element={<UsagePage />} />
       </Routes>
     </SessionBootstrap>
   );

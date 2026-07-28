@@ -5,19 +5,21 @@ import { App } from "./App";
 import { useAuthStore } from "../features/auth/authStore";
 import { resetInitialSessionRestoreFlag } from "../features/auth/session-restore";
 
-vi.mock("../features/generation-history/useGenerationHistory", () => ({
-  useGenerationHistory: () => ({
-    items: [],
-    total: 0,
-    limit: 20,
-    offset: 0,
-    statusFilter: "",
-    isLoading: false,
-    error: null,
-    setPagination: vi.fn(),
-    setStatusFilter: vi.fn(),
-    reload: vi.fn(),
+vi.mock("../features/auth/authMode", () => ({
+  getAuthMode: () => "session" as const,
+  isAuthDisabled: () => false,
+  getDemoUser: () => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    email: "demo@reactify.local",
+    displayName: "Demo User",
+    createdAt: new Date(0).toISOString(),
   }),
+}));
+
+import { createMockGenerationHistory } from "../test/mockGenerationHistory";
+
+vi.mock("../features/generation-history/useGenerationHistory", () => ({
+  useGenerationHistory: () => createMockGenerationHistory(),
 }));
 
 vi.mock("../features/auth/authApi", () => ({

@@ -336,7 +336,7 @@ export class GenerationRepository {
   }
 
   async listSummaries(input: {
-    ownerId: string;
+    ownerId?: string;
     status?: string;
     limit: number;
     offset: number;
@@ -361,7 +361,7 @@ export class GenerationRepository {
   }> {
     try {
       const where: Prisma.GenerationWhereInput = {
-        ownerId: input.ownerId,
+        ...(input.ownerId ? { ownerId: input.ownerId } : {}),
         deletedAt: null,
         ...(input.status ? { status: input.status } : {}),
       };

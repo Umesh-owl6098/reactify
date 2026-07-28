@@ -57,3 +57,14 @@ export type ActiveSessionListResponse = z.infer<typeof ActiveSessionListResponse
 
 /** Fixed UUID assigned to pre-auth development generations during migration. */
 export const LEGACY_MIGRATION_USER_ID = "11111111-1111-4111-8111-111111111111";
+
+export const AUTH_MODE_VALUES = ["session", "disabled"] as const;
+export type AuthMode = (typeof AUTH_MODE_VALUES)[number];
+
+export const DEFAULT_DEMO_USER_ID = LEGACY_MIGRATION_USER_ID;
+
+export const DEFAULT_DEMO_USER = {
+  id: DEFAULT_DEMO_USER_ID,
+  email: "demo@reactify.local",
+  displayName: "Demo User",
+} as const;
