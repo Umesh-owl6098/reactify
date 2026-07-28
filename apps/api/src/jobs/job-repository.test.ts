@@ -124,4 +124,64 @@ describe("JobRepository", () => {
     const jobs = await prisma.backgroundJob.findMany({ where: { generationId: missingGenerationId } });
     expect(jobs).toHaveLength(0);
   });
+
+  it("allows a new plan job after a terminal plan job when the idempotency key is job-scoped", async () => {
+    const legacyPlanKey = `plan-${generationId}`;
+    const analysisJobId = randomUUID();
+    const scopedPlanKey = `plan-${generationId}-${analysisJobId}`;
+
+    const failedPlan = await repository.enqueue({
+      generationId,
+      ownerId,
+      jobType: "generation_plan_creation",
+      payload: { generationId },
+      idempotencyKey: legacyPlanKey,
+    });
+    await prisma.backgroundJob.update({
+      where: { id: failedPlan.job.id },
+      data: { status: "failed", failedAt: new Date(), failureCode: "PLAN_SCHEMA_INVALID" },
+    });
+
+    const retryPlan = await repository.enqueue({
+      generationId,
+      ownerId,
+      jobType: "generation_plan_creation",
+      payload: { generationId },
+      idempotencyKey: scopedPlanKey,
+    });
+
+    expect(retryPlan.created).toBe(true);
+    expect(retryPlan.job.id).not.toBe(failedPlan.job.id);
+    expect(retryPlan.job.status).toBe("queued");
+  });
+
+  it("allows a rerouted design-analysis job when the initial design-analysis key is terminal", async () => {
+    const initialAnalysisKey = `design-analysis-${generationId}`;
+    const planJobId = randomUUID();
+    const rerouteKey = `design-analysis-reroute-${generationId}-${planJobId}`;
+
+    const failedAnalysis = await repository.enqueue({
+      generationId,
+      ownerId,
+      jobType: "design_analysis",
+      payload: { generationId, imageId: randomUUID() },
+      idempotencyKey: initialAnalysisKey,
+    });
+    await prisma.backgroundJob.update({
+      where: { id: failedAnalysis.job.id },
+      data: { status: "failed", failedAt: new Date(), failureCode: "ANALYSIS_SCHEMA_INVALID" },
+    });
+
+    const reroutedAnalysis = await repository.enqueue({
+      generationId,
+      ownerId,
+      jobType: "design_analysis",
+      payload: { generationId, imageId: randomUUID() },
+      idempotencyKey: rerouteKey,
+    });
+
+    expect(reroutedAnalysis.created).toBe(true);
+    expect(reroutedAnalysis.job.id).not.toBe(failedAnalysis.job.id);
+    expect(reroutedAnalysis.job.status).toBe("queued");
+  });
 });

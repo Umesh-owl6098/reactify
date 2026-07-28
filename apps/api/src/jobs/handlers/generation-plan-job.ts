@@ -30,7 +30,7 @@ export function createGenerationPlanHandler(runner: PipelineRunner) {
           {
             jobType: "design_analysis",
             payload: { generationId: data.generationId, imageId: record.imageId },
-            idempotencyKey: `design-analysis-${data.generationId}`,
+            idempotencyKey: `design-analysis-reroute-${data.generationId}-${context.jobId}`,
           },
         ],
       };

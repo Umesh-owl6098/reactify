@@ -17,9 +17,13 @@ function createStore() {
   );
 }
 
-function createContext(store: GenerationStore, generationId: string): JobExecutionContext {
+function createContext(
+  store: GenerationStore,
+  generationId: string,
+  jobId = "11111111-1111-4111-8111-111111111111",
+): JobExecutionContext {
   return {
-    jobId: "11111111-1111-4111-8111-111111111111",
+    jobId,
     generationId,
     ownerId: "22222222-2222-4222-8222-222222222222",
     workerId: "worker-test",
@@ -49,9 +53,36 @@ describe("createGenerationPlanHandler", () => {
       {
         jobType: "design_analysis",
         payload: { generationId, imageId: "image-1" },
-        idempotencyKey: `design-analysis-${generationId}`,
+        idempotencyKey: `design-analysis-reroute-${generationId}-11111111-1111-4111-8111-111111111111`,
       },
     ]);
+  });
+
+  it("uses a reroute key that does not collide with the initial design-analysis key", async () => {
+    const store = createStore();
+    const generationId = store.create({ ownerId: "owner", imageId: "image-1" }).id;
+    const planJobId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const handler = createGenerationPlanHandler({ runSegment: vi.fn() } as unknown as PipelineRunner);
+
+    const result = await handler({ generationId }, createContext(store, generationId, planJobId));
+
+    expect(result.chainJobs?.[0]?.idempotencyKey).toBe(
+      `design-analysis-reroute-${generationId}-${planJobId}`,
+    );
+    expect(result.chainJobs?.[0]?.idempotencyKey).not.toBe(`design-analysis-${generationId}`);
+  });
+
+  it("returns the same reroute key when the same plan job reruns", async () => {
+    const store = createStore();
+    const generationId = store.create({ ownerId: "owner", imageId: "image-1" }).id;
+    const planJobId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const handler = createGenerationPlanHandler({ runSegment: vi.fn() } as unknown as PipelineRunner);
+    const context = createContext(store, generationId, planJobId);
+
+    const first = await handler({ generationId }, context);
+    const second = await handler({ generationId }, context);
+
+    expect(first.chainJobs?.[0]?.idempotencyKey).toBe(second.chainJobs?.[0]?.idempotencyKey);
   });
 
   it("runs generation_plan_creation when design analysis exists", async () => {
