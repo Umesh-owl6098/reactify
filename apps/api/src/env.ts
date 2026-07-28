@@ -33,6 +33,7 @@ const EnvSchema = z.object({
   ANTHROPIC_MODEL: z.string().default("claude-3-5-sonnet-20241022"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o"),
+  OPENAI_MAX_RETRIES: z.coerce.number().int().min(0).default(0),
   AI_TIMEOUT_MS: z.coerce.number().default(180_000),
   AI_MAX_TOKENS: z.coerce.number().default(8192),
   AI_TEMPERATURE: z.coerce.number().default(0.2),

@@ -34,7 +34,7 @@ export function createAIProvider(env: Env, override?: AIProvider): AIProvider {
   }
 
   if (env.AI_PROVIDER === "openai") {
-    return createOpenAIProvider(env.OPENAI_API_KEY!, resolveActiveModel(env));
+    return createOpenAIProvider(env.OPENAI_API_KEY!, resolveActiveModel(env), env.OPENAI_MAX_RETRIES);
   }
 
   if (env.AI_PROVIDER === "anthropic") {

@@ -31,6 +31,7 @@ Required shared API/worker variables (names only):
   DATABASE_URL=${{Postgres.DATABASE_URL}}
   AI_PROVIDER=openai
   OPENAI_API_KEY
+  OPENAI_MAX_RETRIES=0
   STORAGE_DRIVER=s3
   S3_ENDPOINT
   S3_REGION

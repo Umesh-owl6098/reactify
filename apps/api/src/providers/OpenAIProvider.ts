@@ -167,7 +167,11 @@ function mergeSignals(signals: Array<AbortSignalLike | undefined>): AbortSignalL
   return controller.signal;
 }
 
-function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignalLike): {
+function createTimeoutSignal(
+  timeoutMs: number,
+  parentSignal?: AbortSignalLike,
+  onTimeout?: () => void,
+): {
   signal?: AbortSignalLike;
   dispose: () => void;
 } {
@@ -177,6 +181,7 @@ function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignalLike):
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
+    onTimeout?.();
     controller.abort(new Error("Request timed out"));
   }, timeoutMs);
 
@@ -187,6 +192,29 @@ function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignalLike):
       clearTimeout(timeoutId);
     },
   };
+}
+
+function withHardDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return operation;
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new AIProviderError("OpenAI request timed out.", ErrorCode.AI_TIMEOUT));
+    }, timeoutMs);
+
+    void operation.then(
+      (result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 export class OpenAIProvider implements AIProvider {
@@ -202,8 +230,15 @@ export class OpenAIProvider implements AIProvider {
 
   async invoke(inputs: AIInput[], options: AIInvocationOptions): Promise<AIInvocationResult> {
     const startedAt = Date.now();
-    const { signal, dispose } = createTimeoutSignal(options.timeoutMs, options.signal);
     const requestSummary = summarizeRequestBody(inputs, options.model, options.maxTokens ?? 8192, options.responseFormat);
+    const { signal, dispose } = createTimeoutSignal(options.timeoutMs, options.signal, () => {
+      logEvent("openai_request_timeout", {
+        provider: this.providerName,
+        model: options.model,
+        timeoutMs: options.timeoutMs,
+        request: requestSummary,
+      });
+    });
 
     logEvent("openai_request_started", {
       provider: this.providerName,
@@ -211,7 +246,7 @@ export class OpenAIProvider implements AIProvider {
     });
 
     try {
-      const response = await this.client.responses.create(
+      const request = this.client.responses.create(
         {
           model: options.model,
           input: buildResponseInput(inputs),
@@ -221,6 +256,7 @@ export class OpenAIProvider implements AIProvider {
         },
         { signal: signal as AbortSignal | undefined, timeout: options.timeoutMs },
       );
+      const response = await withHardDeadline(request, options.timeoutMs);
 
       const rawText = response.output_text?.trim() ?? "";
       if (!rawText) {
@@ -273,7 +309,7 @@ export class OpenAIProvider implements AIProvider {
   }
 }
 
-export function createOpenAIProvider(apiKey: string, defaultModel: string): OpenAIProvider {
-  const client = new OpenAI({ apiKey: apiKey.trim() });
+export function createOpenAIProvider(apiKey: string, defaultModel: string, maxRetries = 0): OpenAIProvider {
+  const client = new OpenAI({ apiKey: apiKey.trim(), maxRetries });
   return new OpenAIProvider(client as unknown as OpenAIResponsesClientLike, defaultModel);
 }

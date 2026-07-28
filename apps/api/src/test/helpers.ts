@@ -39,6 +39,7 @@ export const testEnv: Env = {
   AI_PROVIDER: "mock",
   ANTHROPIC_MODEL: "claude-3-5-sonnet-20241022",
   OPENAI_MODEL: "gpt-4o",
+  OPENAI_MAX_RETRIES: 0,
   AI_TIMEOUT_MS: 60_000,
   AI_MAX_TOKENS: 8192,
   AI_TEMPERATURE: 0.2,

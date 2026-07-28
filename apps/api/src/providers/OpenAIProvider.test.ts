@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { designAnalysisFixture } from "@reactify/test-utils";
 import { ErrorCode } from "@reactify/shared";
+import * as structuredLog from "../lib/structured-log.js";
+import { validateEnv } from "../env.js";
 import {
   APIConnectionError,
   APIConnectionTimeoutError,
@@ -42,6 +44,79 @@ function createApiError<T extends new (...args: never[]) => Error>(
 const validDesignAnalysisJson = JSON.stringify(designAnalysisFixture);
 
 describe("OpenAIProvider", () => {
+  it("rejects a request that exceeds the hard deadline and logs both timeout events", async () => {
+    vi.useFakeTimers();
+    const logEvent = vi.spyOn(structuredLog, "logEvent").mockImplementation(() => undefined);
+    const logError = vi.spyOn(structuredLog, "logError").mockImplementation(() => undefined);
+    const create = vi.fn().mockImplementation(() => new Promise<never>(() => undefined));
+    const provider = new OpenAIProvider(createMockClient({} as never, create), "gpt-4o");
+
+    const invocation = provider.invoke([{ text: "prompt" }], {
+      promptVersion: "1.0.0",
+      model: "gpt-4o",
+      temperature: 0.2,
+      timeoutMs: 1000,
+    });
+    const timeoutExpectation = expect(invocation).rejects.toMatchObject({
+      errorCode: ErrorCode.AI_TIMEOUT,
+      message: "OpenAI request timed out.",
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await timeoutExpectation;
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(logEvent).toHaveBeenCalledWith("openai_request_timeout", {
+      provider: "openai",
+      model: "gpt-4o",
+      timeoutMs: 1000,
+      request: expect.objectContaining({
+        model: "gpt-4o",
+        textInputCount: 1,
+        imageInputCount: 0,
+      }),
+    });
+    expect(logError).toHaveBeenCalledWith(
+      "openai_request_failed",
+      expect.anything(),
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4o",
+        failureCode: ErrorCode.AI_TIMEOUT,
+      }),
+    );
+
+    logEvent.mockRestore();
+    logError.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("clears timeout timers after a completed response", async () => {
+    vi.useFakeTimers();
+    const logEvent = vi.spyOn(structuredLog, "logEvent").mockImplementation(() => undefined);
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_123",
+      model: "gpt-4o",
+      output_text: validDesignAnalysisJson,
+      usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+    });
+    const provider = new OpenAIProvider(createMockClient({} as never, create), "gpt-4o");
+
+    await provider.invoke([{ text: "prompt" }], {
+      promptVersion: "1.0.0",
+      model: "gpt-4o",
+      temperature: 0.2,
+      timeoutMs: 1000,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(logEvent).not.toHaveBeenCalledWith("openai_request_timeout", expect.anything());
+
+    logEvent.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("builds Responses API input with a user message containing text and image data URLs", async () => {
     const create = vi.fn().mockResolvedValue({
       id: "resp_123",
@@ -319,6 +394,18 @@ describe("createAIProvider", () => {
     expect(provider.defaultModel).toBe("gpt-4o");
   });
 
+  it("passes configured OpenAI retries to the SDK client", () => {
+    const provider = createAIProvider({
+      ...baseEnv,
+      AI_PROVIDER: "openai",
+      OPENAI_API_KEY: "test-key",
+      OPENAI_MODEL: "gpt-4o",
+      OPENAI_MAX_RETRIES: 4,
+    } as never);
+
+    expect((provider as unknown as { client: { maxRetries: number } }).client.maxRetries).toBe(4);
+  });
+
   it("throws AI_PROVIDER_NOT_CONFIGURED when OPENAI_API_KEY is missing", () => {
     expect(() =>
       createAIProvider({
@@ -354,5 +441,16 @@ describe("createAIProvider", () => {
         MOCK_AI_FAILURE_STAGE: undefined,
       } as never).providerName,
     ).toBe("openai");
+  });
+});
+
+describe("OpenAI retry environment", () => {
+  it("defaults OPENAI_MAX_RETRIES to zero", () => {
+    const env = validateEnv({
+      DATABASE_URL: "postgresql://reactify:reactify_dev@localhost:5434/reactify",
+      NODE_ENV: "test",
+    });
+
+    expect(env.OPENAI_MAX_RETRIES).toBe(0);
   });
 });
