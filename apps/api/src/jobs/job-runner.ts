@@ -468,7 +468,12 @@ export class JobRunner {
     const record = this.deps.store.get(job.generationId);
 
     if (record && !willRetry) {
-      syncGenerationForJobFailure(record, classified.code, job.jobType as BackgroundJobType);
+      syncGenerationForJobFailure(
+        record,
+        classified.code,
+        job.jobType as BackgroundJobType,
+        classified.message,
+      );
       await this.deps.store.persist(record);
     }
 

@@ -29,6 +29,29 @@ export const sandboxCompilationStage: StageExecutor = async (input, context) => 
     projectHash,
     fileCount: state.generatedProject.files.length,
   });
+
+  if (context.isMockDemo) {
+    context.logger.info("mock_sandbox_validation_completed", {
+      generationId: context.generationId,
+      projectHash,
+      fileCount: state.generatedProject.files.length,
+    });
+    return {
+      status: "completed",
+      output: {
+        projectHash,
+        awaitingSandboxValidation: false,
+        sandboxValidation: {
+          projectHash,
+          compilation: { success: true, durationMs: 0, errors: [], warnings: [] },
+          runtime: { success: true, durationMs: 0, errors: [], warnings: [] },
+          validatedAt: new Date().toISOString(),
+        },
+      },
+      durationMs: 0,
+    };
+  }
+
   context.logger.info("waiting_for_browser_validation", {
     generationId: context.generationId,
     projectHash,

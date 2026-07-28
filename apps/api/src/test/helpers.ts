@@ -106,12 +106,14 @@ export async function createTestServer(
     storageDir?: string;
     useDatabase?: boolean;
     jobs?: BuildServerOptions["jobs"];
+    pipelineEnv?: Partial<Env>;
   } = {},
 ) {
   process.env.AUTH_SKIP_ORIGIN_CHECK = "true";
   const resolvedStorageDir = options.storageDir ?? (await mkdtemp(join(tmpdir(), "reactify-test-")));
+  const pipelineEnv = { ...testEnv, ...options.pipelineEnv };
   const pipeline = createPipelineServices(new ImageStorage(new LocalStorageProvider(resolvedStorageDir)), {
-    env: testEnv,
+    env: pipelineEnv,
     aiProvider: options.aiProvider,
   });
   const { app } = await buildServer(testEnv, {

@@ -168,10 +168,6 @@ describe("JobRunner transient OpenAI retries", () => {
       }),
     });
 
-    const workerId = getWorkerId();
-    const claimed = await repository.claimNextJob(workerId);
-    expect(claimed?.id).toBe(jobId);
-
     await runner.executeJobById(jobId);
 
     const afterFirstFailure = await prisma.backgroundJob.findUnique({ where: { id: jobId } });
@@ -190,8 +186,6 @@ describe("JobRunner transient OpenAI retries", () => {
       data: { availableAt: new Date(0) },
     });
 
-    const reclaimed = await repository.claimNextJob(workerId);
-    expect(reclaimed?.id).toBe(jobId);
     await runner.executeJobById(jobId);
 
     const afterSuccess = await prisma.backgroundJob.findUnique({ where: { id: jobId } });

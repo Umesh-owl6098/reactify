@@ -72,6 +72,7 @@ export interface PipelineContext {
     maxPatchFileBytes: number;
     maxPatchTotalBytes: number;
   };
+  isMockDemo: boolean;
 }
 
 export type StageExecutor = (

@@ -1,6 +1,7 @@
 import type { DesignAnalysisV1 } from "@reactify/generation-contracts";
 import type { GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { GenerationPlanV1 } from "@reactify/generation-contracts";
+import type { VisualObject } from "@reactify/generation-contracts";
 
 export { projectPatchFixture, createProjectPatchFixtureJson } from "./projectPatch.js";
 export {
@@ -13,6 +14,23 @@ export {
   visualCorrectionFixture,
   createVisualCorrectionFixtureJson,
 } from "./visual-comparison.js";
+
+function createMockVisualObject(
+  object: Pick<VisualObject, "id" | "name" | "kind" | "box" | "layer" | "silhouette" | "confidence"> &
+    Partial<Pick<VisualObject, "textVisibility" | "text">>,
+): VisualObject {
+  return {
+    rotationDegrees: 0,
+    relativeScale: 1,
+    dominantColors: [],
+    subComponents: [],
+    textVisibility: "none",
+    text: null,
+    connectedTo: [],
+    responsiveBehavior: null,
+    ...object,
+  };
+}
 
 export const designAnalysisFixture: DesignAnalysisV1 = {
   schemaVersion: "1",
@@ -67,6 +85,26 @@ export const designAnalysisFixture: DesignAnalysisV1 = {
   shadows: "0 10px 30px rgba(15, 23, 42, 0.35)",
   interactions: ["Primary button hover state", "Feature card hover elevation"],
   responsiveBehavior: "Hero stacks vertically on tablet and mobile breakpoints",
+  visualComposition: {
+    schemaVersion: "1",
+    sourceWidth: 1440,
+    sourceHeight: 900,
+    backgroundColor: "#0F172A",
+    backgroundFillsFrame: false,
+    objects: [
+      createMockVisualObject({ id: "mock-chart", name: "HeroSection", kind: "chart", box: { x: 0.05, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "bar chart", confidence: 1 }),
+      createMockVisualObject({ id: "mock-illustration", name: "HeroSection", kind: "illustration", box: { x: 0.15, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "abstract illustration", confidence: 1 }),
+      createMockVisualObject({ id: "mock-text", name: "HeroSection", kind: "text", box: { x: 0.25, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "headline text", textVisibility: "legible", text: "Build faster with Reactify", confidence: 1 }),
+      createMockVisualObject({ id: "mock-control", name: "HeroSection", kind: "control", box: { x: 0.35, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "button", confidence: 1 }),
+      createMockVisualObject({ id: "mock-surface", name: "HeroSection", kind: "surface", box: { x: 0.45, y: 0.05, width: 0.08, height: 0.08 }, layer: 0, silhouette: "panel", confidence: 1 }),
+      createMockVisualObject({ id: "mock-background", name: "HeroSection", kind: "background", box: { x: 0.55, y: 0.05, width: 0.08, height: 0.08 }, layer: 0, silhouette: "background fill", confidence: 1 }),
+      createMockVisualObject({ id: "mock-device", name: "HeroSection", kind: "device", box: { x: 0.65, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "desktop device", confidence: 1 }),
+      createMockVisualObject({ id: "mock-tool", name: "HeroSection", kind: "tool", box: { x: 0.75, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "design tool", confidence: 1 }),
+      createMockVisualObject({ id: "mock-decoration", name: "HeroSection", kind: "decoration", box: { x: 0.85, y: 0.05, width: 0.08, height: 0.08 }, layer: 1, silhouette: "decorative shape", confidence: 1 }),
+    ],
+    majorObjectIds: ["mock-chart", "mock-illustration", "mock-text", "mock-control", "mock-surface", "mock-device", "mock-tool", "mock-decoration"],
+    notes: "Complete mock composition covering every supported visual object kind.",
+  },
 };
 
 export const generationPlanFixture: GenerationPlanV1 = {
@@ -359,6 +397,7 @@ export const generatedProjectFixture: GeneratedProjectV1 = {
         "export default function App() {",
         "  return (",
         '    <main className="min-h-screen bg-slate-950 text-white">',
+        '      <svg aria-hidden="true" className="hidden"><path d="M0 0h1v1H0z" /></svg>',
         '      <HeroSection title="Build faster with Reactify" />',
         "    </main>",
         "  );",

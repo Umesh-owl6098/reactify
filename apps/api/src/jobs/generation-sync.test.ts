@@ -66,6 +66,24 @@ describe("syncGenerationForJobFailure", () => {
     expect(record.status).toBe("Failed");
   });
 
+  it("persists the terminal job failure code and message for the generation UI", () => {
+    const record = createReadyRecord();
+    syncGenerationForJobFailure(
+      record,
+      ErrorCode.AI_TIMEOUT,
+      "design_analysis",
+      "The AI provider did not respond before the deadline.",
+    );
+
+    expect(record.errors).toEqual([
+      {
+        stage: "design_analysis",
+        code: ErrorCode.AI_TIMEOUT,
+        message: "The AI provider did not respond before the deadline.",
+      },
+    ]);
+  });
+
   it("does not mark the generation Failed when export preparation fails", () => {
     const record = createReadyRecord();
     syncGenerationForJobFailure(record, ErrorCode.EXPORT_IN_PROGRESS, "export_preparation");

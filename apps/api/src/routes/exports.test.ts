@@ -47,7 +47,7 @@ describe("export routes", () => {
   let imageId = "";
 
   beforeEach(async () => {
-    const setup = await createTestServer();
+    const setup = await createTestServer({ pipelineEnv: { AI_PROVIDER: "anthropic" } });
     app = setup.app;
     pipeline = setup.pipeline;
     authCookie = setup.authCookie;

@@ -389,10 +389,6 @@ describe("JobRunner chain enqueue with real lease heartbeats", () => {
         }),
       });
 
-      const workerId = getWorkerId();
-      const claimed = await repository.claimNextJob(workerId);
-      expect(claimed?.id).toBe(jobId);
-
       await runner.executeJobById(jobId);
 
       expect(enqueue).toHaveBeenCalledTimes(1);

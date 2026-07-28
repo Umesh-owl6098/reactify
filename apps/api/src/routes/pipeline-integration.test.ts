@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generationPlanFixture } from "@reactify/test-utils";
 import {
   createTestServer,
-  completeSandboxValidation,
   waitForGenerationStatus,
   withAuth,
   PNG_1X1,
@@ -15,14 +14,12 @@ function authed(app: Awaited<ReturnType<typeof createTestServer>>["app"], cookie
 
 describe("pipeline integration (mock provider)", () => {
   let app: Awaited<ReturnType<typeof createTestServer>>["app"];
-  let pipeline: Awaited<ReturnType<typeof createTestServer>>["pipeline"];
   let authCookie = "";
   let imageId = "";
 
   beforeEach(async () => {
     const setup = await createTestServer();
     app = setup.app;
-    pipeline = setup.pipeline;
     authCookie = setup.authCookie;
     imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
   });
@@ -31,7 +28,7 @@ describe("pipeline integration (mock provider)", () => {
     await app.close();
   });
 
-  it("runs upload through preview-ready without live Anthropic calls", async () => {
+  it("persists the full mock workflow through Ready without external AI or browser validation", async () => {
     const createResponse = await authed(app, authCookie, {
       method: "POST",
       url: "/api/v1/generations",
@@ -54,7 +51,13 @@ describe("pipeline integration (mock provider)", () => {
       payload: { plan: generationPlanFixture },
     });
 
-    await completeSandboxValidation(app, authCookie, generationId, pipeline);
+    await waitForGenerationStatus(async () => {
+      const response = await authed(app, authCookie, {
+        method: "GET",
+        url: `/api/v1/generations/${generationId}`,
+      });
+      return response.json() as { status: string };
+    }, "Ready");
 
     const finalStatus = await authed(app, authCookie, {
       method: "GET",
@@ -65,5 +68,9 @@ describe("pipeline integration (mock provider)", () => {
     expect(finalStatus.json().outputs.generatedProject).not.toBeNull();
     expect(finalStatus.json().outputs.designAnalysis).not.toBeNull();
     expect(finalStatus.json().outputs.generationPlan).not.toBeNull();
+    expect(finalStatus.json().sandboxValidation).toMatchObject({
+      compilation: { success: true },
+      runtime: { success: true },
+    });
   });
 });

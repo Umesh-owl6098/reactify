@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
 import { MockAIProvider, generationPlanFixture } from "@reactify/test-utils";
-import {
-  createSuccessfulSandboxValidationReport,
-  waitForAwaitingSandboxValidation,
-} from "../test/helpers.js";
 import { PipelineRunner } from "./PipelineRunner.js";
 import { StageRegistry, createDefaultRegistry } from "./registry.js";
 import { createStageExecutors } from "./stages/index.js";
@@ -33,6 +29,7 @@ function createRunnerServices() {
       maxPatchFileBytes: testEnv.MAX_PATCH_FILE_BYTES,
       maxPatchTotalBytes: testEnv.MAX_PATCH_TOTAL_BYTES,
     },
+    isMockDemo: true,
   };
 }
 
@@ -76,44 +73,13 @@ describe("PipelineRunner", () => {
     expect(record?.stages.some((stage) => stage.stage === "react_project_generation")).toBe(false);
   });
 
-  it("resumes after plan confirmation and completes browser-assisted sandbox validation", async () => {
+  it("resumes after plan confirmation and completes mock sandbox validation", async () => {
     const generationId = store.create({ imageId }).id;
     await runner.run(generationId);
 
     const confirmResult = runner.confirmPlan(generationId, generationPlanFixture, false);
     expect(confirmResult.ok).toBe(true);
     await runner.resume(generationId);
-
-    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
-      const record = store.get(generationId);
-      return {
-        awaitingSandboxValidation: record?.awaitingSandboxValidation,
-        projectHash: record?.projectHash,
-      };
-    });
-
-    const pausedRecord = store.get(generationId);
-    expect(pausedRecord?.activeVersionId).toBe(projectHash);
-    expect(pausedRecord?.versions).toHaveLength(1);
-    expect(pausedRecord?.outputs.generatedProject).not.toBeNull();
-
-    const submitResult = await runner.submitSandboxValidation(
-      generationId,
-      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
-    );
-    expect(submitResult.ok).toBe(true);
-    if (submitResult.shouldResume) {
-      await runner.resumeFromSandbox(generationId);
-    }
-
-    const started = Date.now();
-    while (Date.now() - started < 5000) {
-      const record = store.get(generationId);
-      if (record?.status === "Ready") {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
 
     const record = store.get(generationId);
     expect(record?.status).toBe("Ready");
@@ -122,6 +88,7 @@ describe("PipelineRunner", () => {
     expect(record?.outputs.generatedProject).not.toBeNull();
     expect(record?.sandboxValidation?.compilation.success).toBe(true);
     expect(record?.sandboxValidation?.runtime.success).toBe(true);
+    expect(record?.awaitingSandboxValidation).toBe(false);
   });
 
   it("sets Ready when runSegment stops after preview_ready", async () => {
@@ -130,19 +97,6 @@ describe("PipelineRunner", () => {
 
     expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
     await runner.resume(generationId);
-
-    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
-      const record = store.get(generationId);
-      return {
-        awaitingSandboxValidation: record?.awaitingSandboxValidation,
-        projectHash: record?.projectHash,
-      };
-    });
-
-    await runner.submitSandboxValidation(
-      generationId,
-      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
-    );
 
     const result = await runner.runSegment(generationId, "automatic_repair", { stopAfter: "preview_ready" });
     expect(result.outcome).toBe("completed");
@@ -155,29 +109,6 @@ describe("PipelineRunner", () => {
 
     expect(runner.confirmPlan(generationId, generationPlanFixture, false).ok).toBe(true);
     await runner.resume(generationId);
-
-    const { projectHash } = await waitForAwaitingSandboxValidation(async () => {
-      const record = store.get(generationId);
-      return {
-        awaitingSandboxValidation: record?.awaitingSandboxValidation,
-        projectHash: record?.projectHash,
-      };
-    });
-
-    runner.submitSandboxValidation(
-      generationId,
-      createSuccessfulSandboxValidationReport({ generationId, projectHash }),
-    );
-    await runner.resumeFromSandbox(generationId);
-
-    const started = Date.now();
-    while (Date.now() - started < 5000) {
-      const record = store.get(generationId);
-      if (record?.status === "Ready") {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
 
     const secondConfirm = runner.confirmPlan(generationId, generationPlanFixture, false);
     expect(secondConfirm.ok).toBe(false);

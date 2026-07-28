@@ -5,6 +5,12 @@ import type {
   AIProvider,
 } from "@reactify/shared";
 import {
+  DesignAnalysisV1Schema,
+  GeneratedProjectV1Schema,
+  GenerationPlanV1Schema,
+  ProjectPatchV1Schema,
+} from "@reactify/generation-contracts";
+import {
   designAnalysisFixture,
   generationPlanFixture,
   generatedProjectFixture,
@@ -41,18 +47,8 @@ export class MockAIProvider implements AIProvider {
       this.callCount += 1;
     } else if (this.options.rawText) {
       rawText = this.options.rawText;
-    } else if (this.callCount === 0) {
-      rawText = JSON.stringify(designAnalysisFixture);
-      this.callCount += 1;
-    } else if (this.callCount === 1) {
-      rawText = JSON.stringify(generationPlanFixture);
-      this.callCount += 1;
-    } else if (this.callCount === 2) {
-      rawText = JSON.stringify(generatedProjectFixture);
-      this.callCount += 1;
     } else {
-      rawText = JSON.stringify(projectPatchFixture);
-      this.callCount += 1;
+      rawText = createDefaultMockResponse(inputs);
     }
 
     return {
@@ -66,6 +62,31 @@ export class MockAIProvider implements AIProvider {
       usageSource: "provider_reported" as const,
     };
   }
+}
+
+function createDefaultMockResponse(inputs: AIInput[]): string {
+  const prompt = inputs
+    .filter((input): input is Extract<AIInput, { text: string }> => "text" in input)
+    .map((input) => input.text)
+    .join("\n");
+
+  if (prompt.includes("screenshot-to-code pipeline") || prompt.includes("DesignAnalysisV1 structure")) {
+    return JSON.stringify(DesignAnalysisV1Schema.parse(designAnalysisFixture));
+  }
+
+  if (prompt.includes("frontend architect planning") || prompt.includes("GenerationPlanV1 structure")) {
+    return JSON.stringify(GenerationPlanV1Schema.parse(generationPlanFixture));
+  }
+
+  if (prompt.includes("repairing a generated React + TypeScript + Tailwind project")) {
+    return JSON.stringify(ProjectPatchV1Schema.parse(projectPatchFixture));
+  }
+
+  if (prompt.includes("React + TypeScript + Vite + Tailwind") || prompt.includes("GeneratedProjectV1")) {
+    return JSON.stringify(GeneratedProjectV1Schema.parse(generatedProjectFixture));
+  }
+
+  return JSON.stringify(ProjectPatchV1Schema.parse(projectPatchFixture));
 }
 
 export function createDesignAnalysisFixtureJson(overrides: Record<string, unknown> = {}): string {

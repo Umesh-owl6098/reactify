@@ -193,7 +193,7 @@ describe("GenerationWorkspacePage", () => {
 
     expect(screen.getByText("Generation pipeline")).toBeInTheDocument();
     expect(screen.getByText("Generation failed")).toBeInTheDocument();
-    expect(screen.getByText("The background design job was not available.")).toBeInTheDocument();
+    expect(screen.getByText("[JOB_NOT_FOUND] The background design job was not available.")).toBeInTheDocument();
   });
 
   it("renders API error state with retry", () => {

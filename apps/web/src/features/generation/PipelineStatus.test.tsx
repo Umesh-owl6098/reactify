@@ -148,7 +148,37 @@ describe("PipelineStatus", () => {
     );
 
     expect(screen.getByText("Generation failed")).toBeInTheDocument();
-    expect(screen.getByText("The background design job was not available.")).toBeInTheDocument();
+    expect(screen.getByText("[JOB_NOT_FOUND] The background design job was not available.")).toBeInTheDocument();
+  });
+
+  it("uses terminal job failure details when generation errors are unavailable", () => {
+    render(
+      <PipelineStatus
+        status={{ ...createAnalyzingStatus(), status: "Failed" }}
+        isPolling={false}
+        error={null}
+        job={{
+          jobId: "11111111-1111-4111-8111-111111111111",
+          generationId: "22222222-2222-4222-8222-222222222222",
+          jobType: "design_analysis",
+          status: "failed",
+          progress: 0,
+          progressMessage: null,
+          attemptNumber: 3,
+          maxAttempts: 3,
+          createdAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          failureCode: "AI_TIMEOUT",
+          failureMessage: "The AI provider did not respond before the deadline.",
+          cancellationAllowed: false,
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("[AI_TIMEOUT] The AI provider did not respond before the deadline."),
+    ).toBeInTheDocument();
   });
 
   it("shows retry action when backend allows recovery", () => {

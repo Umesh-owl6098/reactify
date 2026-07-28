@@ -44,6 +44,7 @@ export function syncGenerationForJobFailure(
   record: GenerationRecord,
   failureCode?: string | null,
   jobType?: BackgroundJobType,
+  failureMessage?: string | null,
 ): void {
   if (jobType === "edit_intent_analysis" || jobType === "project_edit_generation") {
     const edit = record.edits.find((entry) => entry.editId === record.activeEditId);
@@ -75,6 +76,16 @@ export function syncGenerationForJobFailure(
   if (record.status !== "RepairFailed") {
     record.status = "Failed";
   }
+
+  const stage = jobType ? JOB_TYPE_TO_STAGE[jobType] : record.activeStage;
+  if (stage && failureCode && failureMessage) {
+    record.errors.push({
+      stage,
+      code: failureCode,
+      message: failureMessage,
+    });
+  }
+  record.updatedAt = new Date().toISOString();
 }
 
 /** Restore Ready after edit-side jobs pause for client input or finish without mutating the project. */

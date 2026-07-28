@@ -140,7 +140,7 @@ export function PipelineStatus({
 
           {activeStatus === "Failed" ? (
             <StatusBanner tone="error" title="Generation failed">
-              {getFailedGenerationMessage(status)}
+              {getFailedGenerationMessage(status, job)}
             </StatusBanner>
           ) : null}
 
@@ -282,28 +282,30 @@ function AnalysisFailureBanner({
   );
 }
 
-function getFailedGenerationMessage(status: GenerationStatusResponse): string {
+function getFailedGenerationMessage(status: GenerationStatusResponse, job?: JobStatusResponse | null): string {
   const latestError = status.errors?.at(-1);
+  let message: string | undefined;
   if (latestError?.code === "JOB_NOT_FOUND") {
-    return "The background design job was not available.";
-  }
-  if (latestError?.code === "GENERATED_PROJECT_SCHEMA_INVALID") {
-    return latestError.message || "The generated React project did not match the required schema.";
-  }
-  if (latestError?.code === "GENERATED_PROJECT_MISSING_REQUIRED_FILES") {
-    return latestError.message || "The generated project is missing required scaffold files.";
-  }
-  if (latestError?.code === "GENERATED_PROJECT_TOKEN_TRUNCATED") {
-    return "Project generation was cut off before completion. Reactify will retry automatically.";
-  }
-  if (latestError?.code === "PROVIDER_RESPONSE_NOT_JSON") {
-    return "The AI provider returned a response that was not valid JSON.";
-  }
-  if (latestError?.code === "PLAN_PROJECT_MISMATCH") {
-    return latestError.message || "The generated project did not match the confirmed plan.";
+    message = "The background design job was not available.";
+  } else if (latestError?.code === "GENERATED_PROJECT_SCHEMA_INVALID") {
+    message = latestError.message || "The generated React project did not match the required schema.";
+  } else if (latestError?.code === "GENERATED_PROJECT_MISSING_REQUIRED_FILES") {
+    message = latestError.message || "The generated project is missing required scaffold files.";
+  } else if (latestError?.code === "GENERATED_PROJECT_TOKEN_TRUNCATED") {
+    message = "Project generation was cut off before completion. Reactify will retry automatically.";
+  } else if (latestError?.code === "PROVIDER_RESPONSE_NOT_JSON") {
+    message = "The AI provider returned a response that was not valid JSON.";
+  } else if (latestError?.code === "PLAN_PROJECT_MISMATCH") {
+    message = latestError.message || "The generated project did not match the confirmed plan.";
   }
 
-  return latestError?.message ?? "This generation did not complete successfully.";
+  if (latestError) {
+    return `[${latestError.code}] ${message ?? latestError.message}`;
+  }
+  if (job?.failureCode) {
+    return `[${job.failureCode}] ${job.failureMessage ?? "The background job failed."}`;
+  }
+  return "Generation failed without a recorded error. Retry the generation or inspect the background job.";
 }
 
 function getAnalysisFailureTitle(code: string): string {

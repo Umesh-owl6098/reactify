@@ -119,6 +119,7 @@ export interface PipelineRunnerServices {
     maxPatchTotalBytes: number;
   };
   mockFailureStage?: PipelineStageName;
+  isMockDemo?: boolean;
 }
 
 export interface PipelineRunOptions {
@@ -327,6 +328,7 @@ export class PipelineRunner {
         loadPrompt: this.services.loadPrompt,
         aiConfig: this.services.aiConfig,
         repairConfig: this.services.repairConfig,
+        isMockDemo: this.services.isMockDemo ?? false,
       };
 
       const startIndex = getStageStartIndex(fromStage);

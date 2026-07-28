@@ -34,7 +34,7 @@ describe("project validators", () => {
       ...generatedProjectFixture,
       files: generatedProjectFixture.files.map((file) =>
         file.path === "src/components/HeroSection.tsx"
-          ? { ...file, content: file.content.replace("sm:px-8", "") }
+          ? { ...file, content: file.content.replace("sm:px-8", "").replace("max-w-4xl", "") }
           : file,
       ),
     };

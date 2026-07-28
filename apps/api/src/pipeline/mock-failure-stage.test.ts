@@ -1,4 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { resolveMockFailureStage } from "./mock-failure-stage.js";
+
+describe("resolveMockFailureStage", () => {
+  it("allows explicit failure injection in tests", () => {
+    expect(resolveMockFailureStage("design_analysis", "test")).toBe("design_analysis");
+  });
+
+  it("ignores mock failure injection outside test environments", () => {
+    expect(resolveMockFailureStage("design_analysis", "production")).toBeUndefined();
+    expect(resolveMockFailureStage("design_analysis", "development")).toBeUndefined();
+  });
+});
+import { describe, expect, it } from "vitest";
 import { ErrorCode } from "@reactify/shared";
 import {
   createMockFailureMessage,

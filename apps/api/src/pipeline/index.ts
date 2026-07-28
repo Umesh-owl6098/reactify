@@ -53,7 +53,8 @@ export function createPipelineServices(
     loadPrompt,
     aiConfig,
     repairConfig,
-    mockFailureStage: resolveMockFailureStage(options.env.MOCK_AI_FAILURE_STAGE),
+    mockFailureStage: resolveMockFailureStage(options.env.MOCK_AI_FAILURE_STAGE, options.env.NODE_ENV),
+    isMockDemo: options.env.AI_PROVIDER === "mock",
   });
 
   return {

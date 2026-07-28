@@ -2,8 +2,11 @@ import type { PipelineStageName } from "@reactify/generation-contracts";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
 import { ErrorCode } from "@reactify/shared";
 
-export function resolveMockFailureStage(raw: string | undefined): PipelineStageName | undefined {
-  if (!raw?.trim()) {
+export function resolveMockFailureStage(
+  raw: string | undefined,
+  nodeEnv: string = process.env.NODE_ENV ?? "development",
+): PipelineStageName | undefined {
+  if (nodeEnv !== "test" || !raw?.trim()) {
     return undefined;
   }
 

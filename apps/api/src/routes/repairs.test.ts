@@ -48,7 +48,7 @@ describe("repair routes", () => {
   let imageId = "";
 
   beforeEach(async () => {
-    const setup = await createTestServer();
+    const setup = await createTestServer({ pipelineEnv: { AI_PROVIDER: "anthropic" } });
     app = setup.app;
     authCookie = setup.authCookie;
     imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
