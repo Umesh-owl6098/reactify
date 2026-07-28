@@ -24,6 +24,22 @@ const STAGE_JOB_TYPE: Partial<Record<PipelineStageName, BackgroundJobType>> = {
   automatic_repair: "automatic_repair",
 };
 
+export function resolveRecoveryJobType(
+  failStage: PipelineStageName,
+  record: GenerationRecord,
+): BackgroundJobType | undefined {
+  const requested = STAGE_JOB_TYPE[failStage];
+  if (!requested) {
+    return undefined;
+  }
+
+  if (requested === "generation_plan_creation" && !record.outputs.designAnalysis) {
+    return "design_analysis";
+  }
+
+  return requested;
+}
+
 export function isGenerationRetryAllowed(record: GenerationRecord): boolean {
   if (record.status !== "Failed" || !record.manualRetryAllowed || record.cancelled || record.deletedAt) {
     return false;
@@ -67,7 +83,7 @@ export async function recoverFailedGeneration(input: {
   }
 
   const failStage = record.failStage ?? "design_analysis";
-  const jobType = STAGE_JOB_TYPE[failStage];
+  const jobType = resolveRecoveryJobType(failStage, record);
   if (!jobType) {
     return {
       ok: false,

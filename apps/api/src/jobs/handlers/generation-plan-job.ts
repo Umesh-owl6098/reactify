@@ -13,6 +13,29 @@ export function createGenerationPlanHandler(runner: PipelineRunner) {
   return async (payload: unknown, context: JobExecutionContext): Promise<JobHandlerResult> => {
     const data = payload as Payload;
     await context.assertCanMutate();
+
+    const record = context.store.get(data.generationId);
+    if (!record) {
+      throw new PermanentJobError(ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+    }
+
+    if (!record.outputs.designAnalysis) {
+      logEvent("generation_plan_rerouted_to_design_analysis", {
+        jobId: context.jobId,
+        generationId: data.generationId,
+      });
+      return {
+        result: { reroutedTo: "design_analysis" },
+        chainJobs: [
+          {
+            jobType: "design_analysis",
+            payload: { generationId: data.generationId, imageId: record.imageId },
+            idempotencyKey: `design-analysis-${data.generationId}`,
+          },
+        ],
+      };
+    }
+
     await context.progress.report(20, "Creating the implementation plan");
 
     const result = await runner.runSegment(data.generationId, "generation_plan_creation", {
