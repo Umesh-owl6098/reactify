@@ -700,11 +700,17 @@ export class ExportService {
         throw new Error(EMPTY_EXPORT_FAILURE_REASON);
       }
 
+      // Write the artifact BEFORE marking the export "ready". If the artifact
+      // write fails, the export stays "preparing" and syncGenerationForJobFailure
+      // can correctly mark it "failed".  Setting "ready" first (the old order)
+      // meant that a storage failure left the export as "ready" with no artifact
+      // and syncGenerationForJobFailure couldn't find a "preparing" export to fix.
+      await this.finalizeReadyExport(record, pending, zipBuffer);
+
       pending.status = "ready";
       pending.fileCount = prepared.package.files.length;
       pending.totalSizeBytes = prepared.package.totalSizeBytes;
       pending.completedAt = exportedAt;
-      await this.finalizeReadyExport(record, pending, zipBuffer);
       await hooks.onProgress?.(100, "Ready");
     } finally {
       record.exportInProgress = false;

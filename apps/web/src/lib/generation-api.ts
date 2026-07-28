@@ -454,6 +454,9 @@ async function waitForExportReady(
   }
 
   const detail = await fetchExportDetail(generationId, exportId);
+  if (detail.export.status === "ready" || detail.export.status === "failed") {
+    return detail.export;
+  }
   if (detail.export.failureReason) {
     throw new Error(detail.export.failureReason);
   }
@@ -465,11 +468,18 @@ async function waitForExportReady(
         throw new Error(`[${job.failureCode ?? "EXPORT_FAILED"}] ${job.failureMessage}`);
       }
       if (job.status === "queued" || job.status === "retry_scheduled") {
-        throw new Error(`Export worker has not started the job (current status: ${job.status}).`);
+        throw new Error(
+          `Export worker has not started the job yet (status: ${job.status}). The worker may be starting up — please retry in a moment.`,
+        );
+      }
+      if (job.status === "completed") {
+        throw new Error(
+          "The export worker completed the job but the export record was not updated. This is a transient DB write failure — please retry the export.",
+        );
       }
     }
   }
-  throw new Error("Export preparation did not complete before the deadline.");
+  throw new Error("Export preparation did not complete before the deadline. Please retry — if this persists, check that the Railway worker service is running.");
 }
 
 export async function fetchExportHistory(generationId: string) {

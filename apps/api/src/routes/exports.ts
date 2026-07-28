@@ -14,6 +14,7 @@ import { requireOwnedGeneration } from "../lib/generationAccess.js";
 import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
 import type { JobService } from "../jobs/job-service.js";
 import type { PersistenceService } from "../persistence/PersistenceService.js";
+import { logError, logEvent } from "../lib/structured-log.js";
 
 function sendError(
   reply: FastifyReply,
@@ -91,6 +92,14 @@ export async function registerExportRoutes(
         return reply.status(200).send(ExportSummarySchema.parse(initiated.summary));
       }
 
+      logEvent("export_request_created", {
+        generationId: id,
+        exportId: initiated.exportId,
+        versionId: initiated.summary.versionId,
+        projectHash: initiated.summary.projectHash,
+        ownerId: request.auth!.user.id,
+      });
+
       // A separate worker hydrates the generation before running this job. The
       // pending export must therefore be durable before enqueueing; otherwise
       // a fast worker can observe a generation with no export record, fail the
@@ -117,6 +126,13 @@ export async function registerExportRoutes(
               : `export-${id}-${initiated.summary.versionId}-${initiated.summary.projectHash}`,
         });
 
+        logEvent("export_job_enqueued", {
+          generationId: id,
+          exportId: initiated.exportId,
+          jobId: accepted.job.jobId,
+          versionId: initiated.summary.versionId,
+        });
+
         return reply.status(202).send({
           export: ExportSummarySchema.parse(initiated.summary),
           job: JobAcceptedResponseSchema.parse(accepted.job),
@@ -130,6 +146,10 @@ export async function registerExportRoutes(
         }
         record.exportInProgress = false;
         await store.persist(record);
+        logError("export_job_enqueue_failed", error, {
+          generationId: id,
+          exportId: initiated.exportId,
+        });
         return sendError(
           reply,
           request,

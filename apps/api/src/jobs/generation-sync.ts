@@ -63,8 +63,14 @@ export function syncGenerationForJobFailure(
   }
 
   if (jobType === "export_preparation") {
-    const pendingExport = record.exports.find((entry) => entry.status === "preparing");
-    if (pendingExport) {
+    // Look for the still-pending export first.  If the artifact write failed
+    // AFTER status was already set to "ready" (pre-fix bug order), fall back
+    // to the most recent non-ready export so the failure is still surfaced.
+    const nonReadyExports = record.exports.filter((entry) => entry.status !== "ready");
+    const pendingExport =
+      record.exports.find((entry) => entry.status === "preparing") ??
+      nonReadyExports[nonReadyExports.length - 1];
+    if (pendingExport && pendingExport.status !== "ready") {
       pendingExport.status = "failed";
       pendingExport.failureReason = failureMessage ?? failureCode ?? "Export preparation failed.";
       pendingExport.completedAt = new Date().toISOString();
