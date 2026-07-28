@@ -441,6 +441,10 @@ export class PipelineRunner {
           this.store.applyStateOutputs(current, state);
         }
 
+        if (stageName === "sandbox_compilation" && context.isMockDemo && result.status === "completed") {
+          this.store.completeMockSandboxValidation(current, state);
+        }
+
         this.store.markStageFinished(current, stageName, {
           status:
             result.status === "completed"

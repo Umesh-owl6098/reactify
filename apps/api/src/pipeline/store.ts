@@ -380,6 +380,39 @@ export class GenerationStore {
     void this.persist(record);
   }
 
+  /**
+   * The mock provider has no browser client to post a validation callback, but
+   * it still follows the real validation persistence sequence. In particular,
+   * create the immutable initial version before marking the validation result
+   * successful so Ready generations have an active project for preview, export,
+   * edits, and comparisons.
+   */
+  completeMockSandboxValidation(record: GenerationRecord, state: PipelineState): void {
+    if (!state.generatedProject || !state.projectHash || !state.sandboxValidation) {
+      return;
+    }
+
+    record.pipelineState = state;
+    record.outputs.generatedProject = state.generatedProject;
+    record.projectHash = state.projectHash;
+    const initialVersion = ensureInitialVersion(record);
+    record.sandboxValidation = state.sandboxValidation;
+    record.validationReportFingerprint = `mock:${state.projectHash}`;
+    record.awaitingSandboxValidation = false;
+    record.repairRequired = false;
+    record.repairStatus = "succeeded";
+    record.updatedAt = new Date().toISOString();
+
+    if (initialVersion) {
+      logEvent("mock_initial_project_version_created", {
+        generationId: record.id,
+        activeVersionId: initialVersion.versionId,
+        projectHash: initialVersion.projectHash,
+        versionNumber: initialVersion.versionNumber,
+      });
+    }
+  }
+
   pauseForPlanReview(record: GenerationRecord, state: PipelineState): void {
     record.pipelineState = state;
     record.awaitingPlanConfirmation = true;

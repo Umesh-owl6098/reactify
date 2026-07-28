@@ -14,12 +14,14 @@ function authed(app: Awaited<ReturnType<typeof createTestServer>>["app"], cookie
 
 describe("pipeline integration (mock provider)", () => {
   let app: Awaited<ReturnType<typeof createTestServer>>["app"];
+  let pipeline: Awaited<ReturnType<typeof createTestServer>>["pipeline"];
   let authCookie = "";
   let imageId = "";
 
   beforeEach(async () => {
     const setup = await createTestServer();
     app = setup.app;
+    pipeline = setup.pipeline;
     authCookie = setup.authCookie;
     imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
   });
@@ -68,9 +70,36 @@ describe("pipeline integration (mock provider)", () => {
     expect(finalStatus.json().outputs.generatedProject).not.toBeNull();
     expect(finalStatus.json().outputs.designAnalysis).not.toBeNull();
     expect(finalStatus.json().outputs.generationPlan).not.toBeNull();
+    expect(finalStatus.json().activeVersionId).toEqual(expect.any(String));
+    expect(finalStatus.json().activeVersionNumber).toBe(1);
+    expect(finalStatus.json().exportAllowed).toBe(true);
+    expect(finalStatus.json().editAllowed).toBe(true);
+    expect(finalStatus.json().visualComparisonAllowed).toBe(true);
     expect(finalStatus.json().sandboxValidation).toMatchObject({
       compilation: { success: true },
       runtime: { success: true },
     });
+
+    const record = pipeline.store.get(generationId);
+    expect(record?.versions).toHaveLength(1);
+    expect(record?.activeVersionId).toBe(record?.versions[0]?.versionId);
+    expect(record?.versions[0]).toMatchObject({
+      source: "initial_generation",
+      projectHash: record?.projectHash,
+    });
+
+    const files = await authed(app, authCookie, {
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/files`,
+    });
+    expect(files.statusCode).toBe(200);
+    expect(files.json().files.length).toBeGreaterThan(0);
+
+    const exportResponse = await authed(app, authCookie, {
+      method: "POST",
+      url: `/api/v1/generations/${generationId}/exports`,
+      payload: {},
+    });
+    expect(exportResponse.statusCode).toBe(201);
   });
 });
