@@ -1,10 +1,17 @@
 import type { AnalysisMetadata } from "@reactify/generation-contracts";
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
+import { DESIGN_ANALYSIS_V1_RESPONSE_FORMAT } from "../../lib/design-analysis-json-schema.js";
 import { parseDesignAnalysisResponse } from "../../lib/parseDesignAnalysis.js";
-import { extractSafeOpenAIErrorFields } from "../../providers/openai-error-utils.js";
+import {
+  extractSafeOpenAIErrorFields,
+  isRetryableAIProviderError,
+} from "../../providers/openai-error-utils.js";
 import { isAIProviderError } from "../../providers/provider-errors.js";
 import { UsageLimitError } from "../../usage/usage-service.js";
-import { toProviderFailureMetadata } from "../../jobs/provider-failure-metadata.js";
+import {
+  toProviderFailureMetadata,
+  toSafeValidationIssues,
+} from "../../jobs/provider-failure-metadata.js";
 import type { PipelineState } from "../types.js";
 
 export const designAnalysisStage: StageExecutor = async (input, context) => {
@@ -37,6 +44,7 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
         temperature: context.aiConfig.temperature,
         maxTokens: context.aiConfig.maxTokens,
         timeoutMs: context.aiConfig.timeoutMs,
+        responseFormat: DESIGN_ANALYSIS_V1_RESPONSE_FORMAT,
       },
     );
 
@@ -62,6 +70,13 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
         status: "failed",
         errorCode: parsed.errorCode,
         errorMessage: parsed.message,
+        providerMetadata: {
+          provider: invocation.provider,
+          model: invocation.model,
+          providerRequestId: invocation.providerRequestId,
+          retryable: false,
+          validationIssues: toSafeValidationIssues(parsed.validationIssues),
+        },
         durationMs: invocation.latencyMs,
       };
     }
@@ -131,7 +146,11 @@ export const designAnalysisStage: StageExecutor = async (input, context) => {
         status: "failed",
         errorCode: error.errorCode,
         errorMessage: error.message,
-        providerMetadata: toProviderFailureMetadata(safeFields),
+        providerMetadata: toProviderFailureMetadata(safeFields, {
+          provider: context.aiProvider.providerName,
+          model: context.aiConfig.model,
+          retryable: isRetryableAIProviderError(error),
+        }),
         durationMs: 0,
       };
     }

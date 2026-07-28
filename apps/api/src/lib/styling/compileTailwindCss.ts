@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import autoprefixer from "autoprefixer";
@@ -24,6 +25,48 @@ function findStylesheet(project: GeneratedProjectV1) {
   );
 }
 
+/**
+ * Generated projects routinely extend the Tailwind theme (custom colors, font
+ * families) in their own tailwind.config; compiling without that theme rejects
+ * valid utilities and `@apply` rules. Evaluate only the config's object
+ * literal in an isolated vm context — no require, module system stubbed, hard
+ * timeout — and use only its `theme`. Any failure falls back to no theme.
+ */
+export function extractProjectTailwindTheme(
+  project: GeneratedProjectV1,
+): Record<string, unknown> | undefined {
+  const configFile = project.files.find((file) =>
+    /(?:^|\/)tailwind\.config\.(?:js|cjs|mjs|ts)$/.test(normalizeProjectPath(file.path)),
+  );
+  if (!configFile) {
+    return undefined;
+  }
+
+  const source = configFile.content
+    .replace(/^\s*import[^\n]*$/gm, "")
+    .replace(/export\s+default/, "module.exports =")
+    .replace(/satisfies\s+[A-Za-z0-9_$.<>[\]\s]+;?\s*$/m, ";");
+
+  const sandbox: { module: { exports: unknown }; exports: unknown; require: () => unknown } = {
+    module: { exports: {} },
+    exports: {},
+    require: () => ({}),
+  };
+
+  try {
+    runInNewContext(source, sandbox, { timeout: 250 });
+  } catch {
+    return undefined;
+  }
+
+  const exported = sandbox.module.exports as { default?: unknown } | undefined;
+  const config = (exported?.default ?? exported) as { theme?: unknown } | undefined;
+  if (!config || typeof config !== "object" || !config.theme || typeof config.theme !== "object") {
+    return undefined;
+  }
+  return config.theme as Record<string, unknown>;
+}
+
 export async function compileTailwindCss(project: GeneratedProjectV1): Promise<CompileTailwindCssOutput> {
   const analysis = analyzeTailwindUsage(project);
   if (!analysis.usesTailwind) {
@@ -36,6 +79,8 @@ export async function compileTailwindCss(project: GeneratedProjectV1): Promise<C
   }
 
   const scaffold = buildTailwindScaffold(project);
+  const projectTheme = extractProjectTailwindTheme(project);
+  const projectExtend = (projectTheme?.extend ?? {}) as Record<string, unknown>;
 
   try {
     const compiled = await postcss([
@@ -50,10 +95,16 @@ export async function compileTailwindCss(project: GeneratedProjectV1): Promise<C
             })),
         ],
         theme: {
+          ...(projectTheme && typeof projectTheme === "object" ? projectTheme : {}),
           extend: {
-            colors: scaffold.colors,
+            ...projectExtend,
+            colors: {
+              ...scaffold.colors,
+              ...((projectExtend.colors as Record<string, string> | undefined) ?? {}),
+            },
             fontFamily: {
               sans: ["Inter", "system-ui", "sans-serif"],
+              ...((projectExtend.fontFamily as Record<string, string[]> | undefined) ?? {}),
             },
           },
         },

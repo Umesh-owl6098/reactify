@@ -63,6 +63,16 @@ export interface GenerationErrorRecord {
   stage: import("@reactify/generation-contracts").PipelineStageName;
   code: string;
   message: string;
+  provider?: string;
+  model?: string;
+  httpStatus?: number;
+  providerRequestId?: string;
+  retryable?: boolean;
+  validationIssues?: Array<{
+    path: string;
+    code: string;
+    message: string;
+  }>;
 }
 
 export interface GenerationRecord {

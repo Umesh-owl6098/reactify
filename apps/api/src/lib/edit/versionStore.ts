@@ -7,6 +7,79 @@ export function getActiveVersion(record: GenerationRecord): ProjectVersionRecord
   return record.versions.find((version) => version.versionId === record.activeVersionId);
 }
 
+/**
+ * Resolve the active immutable snapshot only when every mutable project pointer
+ * still describes that exact snapshot.
+ */
+export function getValidActiveVersion(record: GenerationRecord): ProjectVersionRecord | undefined {
+  if (!record.activeVersionId || !record.projectHash || !record.outputs.generatedProject) {
+    return undefined;
+  }
+
+  const version = getActiveVersion(record);
+  if (!version) {
+    return undefined;
+  }
+
+  const snapshotHash = computeProjectHash(version.project);
+  const outputHash = computeProjectHash(record.outputs.generatedProject);
+  if (
+    snapshotHash !== version.projectHash ||
+    version.projectHash !== record.projectHash ||
+    outputHash !== version.projectHash
+  ) {
+    return undefined;
+  }
+
+  return version;
+}
+
+/**
+ * The project the browser is allowed to fetch. Normally that is the validated
+ * active version, but while the generation is awaiting sandbox validation the
+ * browser must be able to load the pending project to compile it — the initial
+ * version is created unactivated at that point, and refusing to serve it
+ * deadlocks the pipeline (validation needs files; files need validation).
+ * Content is only served when its hash matches the generation's project hash.
+ */
+export function getServableProject(record: GenerationRecord): GeneratedProjectV1 | undefined {
+  const valid = getValidActiveVersion(record);
+  if (valid) {
+    return valid.project;
+  }
+
+  if (!record.awaitingSandboxValidation || !record.projectHash) {
+    return undefined;
+  }
+
+  const pending = record.versions.find((version) => version.projectHash === record.projectHash);
+  if (pending && computeProjectHash(pending.project) === record.projectHash) {
+    return pending.project;
+  }
+
+  if (
+    record.outputs.generatedProject &&
+    computeProjectHash(record.outputs.generatedProject) === record.projectHash
+  ) {
+    return record.outputs.generatedProject;
+  }
+
+  return undefined;
+}
+
+export function canAssignReady(record: GenerationRecord): boolean {
+  const activeVersion = getValidActiveVersion(record);
+  return Boolean(
+    activeVersion &&
+      record.schemaValidation?.valid === true &&
+      record.staticValidation?.valid === true &&
+      record.sandboxValidation?.compilation.success === true &&
+      record.sandboxValidation.runtime.success === true &&
+      record.sandboxValidation.projectHash === activeVersion.projectHash &&
+      !record.awaitingSandboxValidation,
+  );
+}
+
 export function createProjectVersion(input: {
   record: GenerationRecord;
   project: GeneratedProjectV1;
@@ -16,6 +89,7 @@ export function createProjectVersion(input: {
   changedFiles?: string[];
   editId?: string;
   instruction?: string;
+  activate?: boolean;
 }): ProjectVersionRecord {
   const versionNumber = input.record.versions.length + 1;
   const projectHash = computeProjectHash(input.project);
@@ -39,13 +113,28 @@ export function createProjectVersion(input: {
   };
 
   input.record.versions.push(version);
-  input.record.activeVersionId = version.versionId;
+  if (input.activate !== false) {
+    input.record.activeVersionId = version.versionId;
+  }
   return version;
 }
 
-export function ensureInitialVersion(record: GenerationRecord): ProjectVersionRecord | undefined {
-  if (record.versions.length > 0 || !record.outputs.generatedProject || !record.projectHash) {
-    return getActiveVersion(record);
+export function ensureInitialVersion(
+  record: GenerationRecord,
+  options: { activate?: boolean } = {},
+): ProjectVersionRecord | undefined {
+  const existing =
+    getActiveVersion(record) ??
+    record.versions.find((version) => version.source === "initial_generation");
+  if (existing) {
+    if (options.activate !== false && record.activeVersionId !== existing.versionId) {
+      activateVersion(record, existing.versionId);
+    }
+    return existing;
+  }
+
+  if (!record.outputs.generatedProject || !record.projectHash) {
+    return undefined;
   }
 
   return createProjectVersion({
@@ -54,6 +143,7 @@ export function ensureInitialVersion(record: GenerationRecord): ProjectVersionRe
     source: "initial_generation",
     label: "Initial generated project",
     parentVersionId: null,
+    activate: options.activate,
   });
 }
 

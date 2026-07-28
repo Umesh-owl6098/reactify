@@ -60,7 +60,7 @@ describe("OpenAI retry classification", () => {
 
     expect(safe.httpStatus).toBe(500);
     expect(safe.errorType).toBe("server_error");
-    expect(safe.message).toContain("server had an error");
+    expect(safe.message).toBe("OpenAI server error.");
     expect(JSON.stringify(safe)).not.toMatch(/sk-/);
   });
 

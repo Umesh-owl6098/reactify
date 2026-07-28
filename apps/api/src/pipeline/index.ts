@@ -1,7 +1,8 @@
 import type { AIProvider, LoadPromptFn } from "@reactify/shared";
+import type { PipelineStageName } from "@reactify/generation-contracts";
 import type { Env } from "../env.js";
 import { resolveFeatureFlags } from "../env.js";
-import { resolveActiveModel } from "../providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../providers/ai-provider-config.js";
 import { resolveMockFailureStage } from "./mock-failure-stage.js";
 import { defaultLoadPrompt } from "../prompts/loader.js";
 import { createAIProvider } from "../providers/providerFactory.js";
@@ -37,11 +38,18 @@ export function createPipelineServices(
   const registry = createDefaultRegistry(createStageExecutors(imageStorage));
   const aiProvider = options.aiProvider ?? createAIProvider(options.env);
   const loadPrompt = options.loadPrompt ?? defaultLoadPrompt;
-  const aiConfig = {
-    model: resolveActiveModel(options.env),
-    temperature: options.env.AI_TEMPERATURE,
-    maxTokens: options.env.AI_MAX_TOKENS,
-    timeoutMs: options.env.AI_TIMEOUT_MS,
+  const aiConfig = resolveOperationAIConfig(options.env, "design_analysis");
+  const resolveAIConfig = (stage: PipelineStageName) => {
+    switch (stage) {
+      case "generation_plan_creation":
+        return resolveOperationAIConfig(options.env, "generation_plan_creation");
+      case "react_project_generation":
+        return resolveOperationAIConfig(options.env, "react_project_generation");
+      case "automatic_repair":
+        return resolveOperationAIConfig(options.env, "automatic_repair");
+      default:
+        return resolveOperationAIConfig(options.env, "design_analysis");
+    }
   };
   const repairConfig = {
     maxAttempts: options.env.MAX_REPAIR_ATTEMPTS,
@@ -52,6 +60,7 @@ export function createPipelineServices(
     aiProvider,
     loadPrompt,
     aiConfig,
+    resolveAIConfig,
     repairConfig,
     mockFailureStage: resolveMockFailureStage(options.env.MOCK_AI_FAILURE_STAGE, options.env.NODE_ENV),
     isMockDemo: options.env.AI_PROVIDER === "mock",

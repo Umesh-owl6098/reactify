@@ -1,7 +1,7 @@
 import { ErrorCode } from "@reactify/shared";
 import { usdToMicros } from "@reactify/shared";
 import type { Env } from "../env.js";
-import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
+import { resolveConfiguredAIModels, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import type { ModelPricing } from "./cost-calculator.js";
 import { CostCalculatorError } from "./cost-calculator.js";
 
@@ -93,23 +93,25 @@ export function parsePricingFromEnv(env: NodeJS.ProcessEnv): PricingRegistryOpti
 
 export function createPricingRegistry(env: Env, options: PricingRegistryOptions): PricingRegistry {
   const defaultProvider = resolveUsageProviderName(env);
-  const defaultModel = resolveActiveModel(env);
+  const configuredModels = [...new Set(Object.values(resolveConfiguredAIModels(env)))];
 
-  if (!options.models.has(pricingKey(defaultProvider, defaultModel))) {
-    if (env.NODE_ENV === "test" || env.AI_PROVIDER === "mock") {
-      options.models.set(pricingKey("mock", defaultModel), {
+  if (env.NODE_ENV === "test" || env.AI_PROVIDER === "mock") {
+    for (const model of configuredModels) {
+      if (!options.models.has(pricingKey(defaultProvider, model))) {
+        options.models.set(pricingKey(defaultProvider, model), {
+          inputPerMillionMicrosUsd: usdToMicros(3),
+          outputPerMillionMicrosUsd: usdToMicros(15),
+        });
+      }
+      options.models.set(pricingKey("mock", model), {
         inputPerMillionMicrosUsd: usdToMicros(3),
         outputPerMillionMicrosUsd: usdToMicros(15),
-      });
-      options.models.set(pricingKey("anthropic", env.ANTHROPIC_MODEL), {
-        inputPerMillionMicrosUsd: usdToMicros(3),
-        outputPerMillionMicrosUsd: usdToMicros(15),
-      });
-      options.models.set(pricingKey("openai", env.OPENAI_MODEL), {
-        inputPerMillionMicrosUsd: usdToMicros(2.5),
-        outputPerMillionMicrosUsd: usdToMicros(10),
       });
     }
+    options.models.set(pricingKey("anthropic", env.ANTHROPIC_MODEL), {
+      inputPerMillionMicrosUsd: usdToMicros(3),
+      outputPerMillionMicrosUsd: usdToMicros(15),
+    });
   }
 
   return {
@@ -147,10 +149,11 @@ export function createPricingRegistry(env: Env, options: PricingRegistryOptions)
 
 export function validatePricingForEnabledProvider(env: Env, registry: PricingRegistry): void {
   const provider = resolveUsageProviderName(env);
-  const model = resolveActiveModel(env);
-  if (!registry.hasModelPricing(provider, model)) {
+  const missingModels = [...new Set(Object.values(resolveConfiguredAIModels(env)))]
+    .filter((model) => !registry.hasModelPricing(provider, model));
+  if (missingModels.length > 0) {
     console.error(
-      `AI pricing is not configured for enabled model ${provider}/${model}. ` +
+      `AI pricing is not configured for enabled model(s) ${missingModels.map((model) => `${provider}/${model}`).join(", ")}. ` +
         "Set AI_PRICING_* environment variables or AI_PRICING_ALLOW_FALLBACK=true with fallback rates.",
     );
     if (env.NODE_ENV !== "test") {

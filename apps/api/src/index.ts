@@ -7,6 +7,7 @@ import { logDatabaseIdentity } from "./lib/database-identity.js";
 import { registerProcessLifecycle } from "./lib/process-lifecycle.js";
 import { listenWithDevRetry } from "./lib/port-utils.js";
 import type { FastifyInstance } from "fastify";
+import { resolveConfiguredAIModels } from "./providers/ai-provider-config.js";
 
 let app: FastifyInstance | null = null;
 
@@ -65,6 +66,7 @@ async function main() {
       host: env.HOST,
       port: env.PORT,
       aiProvider: env.AI_PROVIDER,
+      aiModels: resolveConfiguredAIModels(env),
       jobInlineExecution: env.JOB_INLINE_EXECUTION,
     });
   } catch (error) {

@@ -202,7 +202,7 @@ export function GenerationWorkspacePage({ generationId }: GenerationWorkspacePag
           {generationId ? (
             <>
               <div className="mt-8 w-full max-w-2xl">
-                <ImagePreview />
+                <ImagePreview persistedImageId={routeStatus?.imageId ?? null} />
               </div>
 
               {view === "auth-waiting" ? (

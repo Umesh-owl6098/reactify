@@ -8,6 +8,7 @@ export interface UsageExecutionContext {
   operationType: UsageOperationType;
   attemptNumber: number;
   reservationId: string;
+  invocationNumber: number;
   providerInvoked: boolean;
 }
 

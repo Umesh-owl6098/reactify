@@ -2,7 +2,17 @@
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 const BLOCKED_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
-  { pattern: /\b(api[_-\s]?key|secret|password|token|credential)\b/i, message: "Instructions cannot request secrets or credentials." },
+  // Block requests to expose secret values, not mere mentions — editing a
+  // password input or a "forgot password" link is normal UI work.
+  {
+    pattern:
+      /\b(?:show|reveal|print|output|display|expose|leak|include|embed|hardcode|insert)\b[^.?!]{0,60}\b(api[_-\s]?keys?|secrets?|passwords?|tokens?|credentials?)\b/i,
+    message: "Instructions cannot request secrets or credentials.",
+  },
+  {
+    pattern: /\b(api[_-\s]?key|access[_-\s]?token|client[_-\s]?secret)s?\s*[:=]/i,
+    message: "Instructions cannot embed secrets or credentials.",
+  },
   { pattern: /(?:^|\s)\.env\b|environment file/i, message: "Instructions cannot request environment files or secrets." },
   { pattern: /\b(rm\s+-rf|curl\s+|wget\s+|bash\s+|shell\s+command|execute\s+command)\b/i, message: "Instructions cannot request shell command execution." },
   { pattern: /\b(backend|server-side|express|fastify|database|sql)\b/i, message: "Instructions cannot request backend or server code." },

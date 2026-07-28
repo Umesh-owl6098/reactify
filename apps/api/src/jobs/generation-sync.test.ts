@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ErrorCode } from "@reactify/shared";
+import { generatedProjectFixture } from "@reactify/test-utils";
 import { syncGenerationForJobFailure } from "./generation-sync.js";
 import type { GenerationRecord } from "../pipeline/types.js";
+import { computeProjectHash } from "../lib/projectHash.js";
+import { ensureInitialVersion } from "../lib/edit/versionStore.js";
 
 function createReadyRecord(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
-  return {
+  const projectHash = computeProjectHash(generatedProjectFixture);
+  const record: GenerationRecord = {
     id: "924ae008-db1d-44ed-97b7-2019de8b6bf4",
     ownerId: "owner",
     imageId: "image",
@@ -12,14 +16,19 @@ function createReadyRecord(overrides: Partial<GenerationRecord> = {}): Generatio
     status: "Ready",
     activeStage: null,
     stages: [],
-    outputs: { designAnalysis: null, generationPlan: null, generatedProject: null },
+    outputs: { designAnalysis: null, generationPlan: null, generatedProject: generatedProjectFixture },
     analysis: null,
     plan: null,
     project: null,
-    schemaValidation: null,
-    staticValidation: null,
-    sandboxValidation: null,
-    projectHash: "hash",
+    schemaValidation: { valid: true, errors: [] },
+    staticValidation: { valid: true, errors: [], warnings: [] },
+    sandboxValidation: {
+      projectHash,
+      compilation: { success: true, durationMs: 1, errors: [], warnings: [] },
+      runtime: { success: true, durationMs: 1, errors: [], warnings: [] },
+      validatedAt: new Date().toISOString(),
+    },
+    projectHash,
     validationReportFingerprint: null,
     repairRequired: false,
     repairStatus: "not_required",
@@ -57,6 +66,8 @@ function createReadyRecord(overrides: Partial<GenerationRecord> = {}): Generatio
     updatedAt: new Date().toISOString(),
     ...overrides,
   };
+  ensureInitialVersion(record);
+  return record;
 }
 
 describe("syncGenerationForJobFailure", () => {
@@ -82,6 +93,48 @@ describe("syncGenerationForJobFailure", () => {
         message: "The AI provider did not respond before the deadline.",
       },
     ]);
+  });
+
+  it("persists only safe terminal provider metadata for the generation UI", () => {
+    const record = createReadyRecord();
+    syncGenerationForJobFailure(
+      record,
+      ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
+      "react_project_generation",
+      "Generated project response failed schema validation.",
+      {
+        provider: "openai",
+        model: "gpt-test",
+        httpStatus: 422,
+        providerRequestId: "req-safe-123",
+        retryable: false,
+        validationIssues: [
+          {
+            path: "files.0.path",
+            code: "invalid_type",
+            message: "Expected string.",
+          },
+        ],
+      },
+    );
+
+    expect(record.errors.at(-1)).toEqual({
+      stage: "react_project_generation",
+      code: ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
+      message: "Generated project response failed schema validation.",
+      provider: "openai",
+      model: "gpt-test",
+      httpStatus: 422,
+      providerRequestId: "req-safe-123",
+      retryable: false,
+      validationIssues: [
+        {
+          path: "files.0.path",
+          code: "invalid_type",
+          message: "Expected string.",
+        },
+      ],
+    });
   });
 
   it("does not mark the generation Failed when export preparation fails", () => {
@@ -124,11 +177,6 @@ describe("syncGenerationForJobFailure", () => {
       const editId = "c82d02f2-4f74-4db3-b884-ea93738a7044";
       const record = createReadyRecord({
         status: "Generating",
-        outputs: {
-          designAnalysis: null,
-          generationPlan: null,
-          generatedProject: { schemaVersion: "1", summary: "project", files: [], components: [] },
-        },
         editInProgress: true,
         activeEditId: editId,
         edits: [
@@ -158,4 +206,31 @@ describe("syncGenerationForJobFailure", () => {
       expect(record.status).toBe("Ready");
     },
   );
+
+  it("does not restore Ready after edit recovery without a valid active snapshot", () => {
+    const record = createReadyRecord({
+      status: "Generating",
+      editInProgress: true,
+      activeEditId: "edit-1",
+      edits: [
+        {
+          editId: "edit-1",
+          generationId: "924ae008-db1d-44ed-97b7-2019de8b6bf4",
+          status: "generating_patch",
+          instruction: "Change one visual property.",
+          sourceVersionId: "missing-version",
+          projectHashBefore: computeProjectHash(generatedProjectFixture),
+          changedFiles: [],
+          clarificationAnswers: [],
+          clarificationRound: 0,
+          resolvedInstruction: "Change one visual property.",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    record.activeVersionId = "missing-version";
+
+    syncGenerationForJobFailure(record, ErrorCode.INTERNAL_ERROR, "project_edit_generation");
+    expect(record.status).toBe("Generating");
+  });
 });

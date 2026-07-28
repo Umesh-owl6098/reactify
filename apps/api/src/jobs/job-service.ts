@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { ErrorCode, JobStatusResponseSchema, microsToUsd, type JobAcceptedResponse } from "@reactify/shared";
+import { ErrorCode, JobStatusResponseSchema, microsToUsd, type JobAcceptedResponse, type UsageOperationType } from "@reactify/shared";
 import type { Env } from "../env.js";
 import type { GenerationStore } from "../pipeline/store.js";
 import type { UsageService } from "../usage/usage-service.js";
@@ -10,7 +10,7 @@ import { JobRepository } from "./job-repository.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { CANCELLABLE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from "./job-types.js";
 import { syncGenerationForJobStart } from "./generation-sync.js";
-import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
+import { resolveOperationAIConfig, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import { logError, logEvent } from "../lib/structured-log.js";
 
 export interface EnqueueJobParams {
@@ -71,6 +71,7 @@ export class JobService {
         | undefined;
 
       if (created && this.usageService?.isMeteredJobType(params.jobType)) {
+        const aiConfig = resolveOperationAIConfig(this.env, params.jobType as UsageOperationType);
         const reservation = await this.usageService.reserveForJob({
           ownerId: params.ownerId,
           generationId: params.generationId,
@@ -78,10 +79,10 @@ export class JobService {
           operationType: params.jobType,
           attemptNumber: 1,
           provider: resolveUsageProviderName(this.env),
-          model: resolveActiveModel(this.env),
+          model: aiConfig.model,
           estimate: {
             operationType: params.jobType,
-            maxOutputTokens: this.env.AI_MAX_TOKENS,
+            maxOutputTokens: aiConfig.maxTokens,
           },
         });
         reservationCreated = true;

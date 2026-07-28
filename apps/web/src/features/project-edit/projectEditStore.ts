@@ -4,6 +4,7 @@ import type { EditOperationSummary } from "@reactify/generation-contracts";
 export type EditPhase =
   | "idle"
   | "submitting"
+  | "processing"
   | "clarifying"
   | "confirming"
   | "awaiting_validation"

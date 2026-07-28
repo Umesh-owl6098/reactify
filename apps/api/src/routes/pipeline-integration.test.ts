@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { generationPlanFixture } from "@reactify/test-utils";
+import { generationPlanFixture, MockAIProvider } from "@reactify/test-utils";
 import {
+  completeSandboxValidation,
   createTestServer,
   waitForGenerationStatus,
   withAuth,
@@ -101,5 +102,85 @@ describe("pipeline integration (mock provider)", () => {
       payload: {},
     });
     expect(exportResponse.statusCode).toBe(201);
+    const exportId = exportResponse.json().exportId as string;
+    const downloadResponse = await authed(app, authCookie, {
+      method: "GET",
+      url: `/api/v1/generations/${generationId}/exports/${exportId}/download`,
+    });
+    expect(downloadResponse.statusCode).toBe(200);
+    expect(downloadResponse.headers["content-type"]).toContain("application/zip");
+    expect(downloadResponse.rawPayload.subarray(0, 2).toString()).toBe("PK");
+  });
+});
+
+describe("pipeline integration (controlled OpenAI fixture)", () => {
+  it("runs the OpenAI-mode workflow through browser validation without a network call", async () => {
+    const fixtureProvider = new MockAIProvider();
+    const setup = await createTestServer({
+      aiProvider: {
+        providerName: "openai",
+        defaultModel: "gpt-4.1-2025-04-14",
+        invoke: async (inputs, options) => {
+          const result = await fixtureProvider.invoke(inputs, options);
+          return { ...result, provider: "openai", model: options.model };
+        },
+      },
+      pipelineEnv: {
+        AI_PROVIDER: "openai",
+        OPENAI_API_KEY: "test-only-key",
+        OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4.1-mini-2025-04-14",
+        OPENAI_PLAN_MODEL: "gpt-4.1-mini-2025-04-14",
+        OPENAI_CODE_GENERATION_MODEL: "gpt-4.1-2025-04-14",
+        OPENAI_EDIT_MODEL: "gpt-4.1-2025-04-14",
+      },
+    });
+    const { app, pipeline, authCookie } = setup;
+
+    try {
+      const imageId = await createAuthenticatedTestImage(app, authCookie, PNG_1X1);
+      const createResponse = await authed(app, authCookie, {
+        method: "POST",
+        url: "/api/v1/generations",
+        payload: { imageId },
+      });
+      const generationId = createResponse.json().generationId as string;
+
+      await waitForGenerationStatus(async () => {
+        const response = await authed(app, authCookie, {
+          method: "GET",
+          url: `/api/v1/generations/${generationId}`,
+        });
+        return response.json() as { status: string };
+      }, "Planning");
+
+      const confirmResponse = await authed(app, authCookie, {
+        method: "POST",
+        url: `/api/v1/generations/${generationId}/confirm-plan`,
+        payload: { plan: generationPlanFixture },
+      });
+      expect(confirmResponse.statusCode).toBe(200);
+
+      await completeSandboxValidation(app, authCookie, generationId, pipeline);
+
+      const statusResponse = await authed(app, authCookie, {
+        method: "GET",
+        url: `/api/v1/generations/${generationId}`,
+      });
+      expect(statusResponse.json()).toMatchObject({
+        status: "Ready",
+        exportAllowed: true,
+        editAllowed: true,
+        visualComparisonAllowed: true,
+        activeVersionNumber: 1,
+      });
+      expect(statusResponse.json().activeVersionId).toEqual(expect.any(String));
+
+      const record = pipeline.store.get(generationId);
+      expect(record?.outputs.generatedProject).not.toBeNull();
+      expect(record?.versions).toHaveLength(1);
+      expect(record?.activeVersionId).toBe(record?.versions[0]?.versionId);
+    } finally {
+      await app.close();
+    }
   });
 });

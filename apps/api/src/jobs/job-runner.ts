@@ -23,7 +23,7 @@ import type { JobRepository } from "./job-repository.js";
 import type { JobService } from "./job-service.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { syncGenerationForJobFailure, syncGenerationForJobStart } from "./generation-sync.js";
-import { resolveActiveModel, resolveUsageProviderName } from "../providers/ai-provider-config.js";
+import { resolveOperationAIConfig, resolveUsageProviderName } from "../providers/ai-provider-config.js";
 import type { WorkerPresenceStore } from "./worker-presence.js";
 import { getWorkerId } from "./worker-id.js";
 import { logError, logEvent, logWarn, serializeError } from "../lib/structured-log.js";
@@ -259,6 +259,7 @@ export class JobRunner {
       if (this.deps.usageService?.isMeteredJobType(job.jobType)) {
         let reservation = await this.deps.usageService.repository.getActiveReservationForJob(jobId, attemptNumber);
         if (!reservation && attemptNumber > 1) {
+          const aiConfig = resolveOperationAIConfig(this.deps.env, job.jobType as UsageOperationType);
           const reserved = await this.deps.usageService.reserveForJob({
             ownerId: job.ownerId,
             generationId: job.generationId,
@@ -266,10 +267,10 @@ export class JobRunner {
             operationType: job.jobType,
             attemptNumber,
             provider: resolveUsageProviderName(this.deps.env),
-            model: resolveActiveModel(this.deps.env),
+            model: aiConfig.model,
             estimate: {
               operationType: job.jobType as UsageOperationType,
-              maxOutputTokens: this.deps.env.AI_MAX_TOKENS,
+              maxOutputTokens: aiConfig.maxTokens,
             },
           });
           reservation = await this.deps.usageService.repository.prisma.usageReservation.findUnique({
@@ -331,6 +332,7 @@ export class JobRunner {
               operationType: job.jobType as UsageOperationType,
               attemptNumber,
               reservationId,
+              invocationNumber: 0,
               providerInvoked: false,
             },
             executeHandler,
@@ -473,6 +475,10 @@ export class JobRunner {
         classified.code,
         job.jobType as BackgroundJobType,
         classified.message,
+        {
+          ...classified.providerMetadata,
+          retryable: isTransientError(classified),
+        },
       );
       await this.deps.store.persist(record);
     }

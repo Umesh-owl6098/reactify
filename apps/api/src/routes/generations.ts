@@ -38,6 +38,8 @@ import { PersistenceError } from "../persistence/errors.js";
 import { verifySchemaReadiness } from "../persistence/schema-readiness.js";
 import { logError, logEvent } from "../lib/structured-log.js";
 import { hydrateOwnedGenerationRecord } from "../lib/hydrateGenerationRecord.js";
+import type { GenerationRecord } from "../pipeline/types.js";
+import { getServableProject } from "../lib/edit/versionStore.js";
 import { compileTailwindCss } from "../lib/styling/compileTailwindCss.js";
 import { normalizeProjectStyling } from "../lib/styling/normalizeProjectStyling.js";
 
@@ -361,9 +363,25 @@ export async function registerGenerationRoutes(
       );
     }
 
-    const record = requireOwnedGeneration(authorization, request, reply, id, sendError);
-    if (!record) {
-      return;
+    // Retry decisions depend on failStage/manualRetryAllowed, which may only
+    // exist in the database after a restart; a stale in-memory copy rejects
+    // retries that are actually allowed.
+    let record: GenerationRecord | null | undefined;
+    if (persistence) {
+      record = await hydrateOwnedGenerationRecord({
+        store,
+        persistence,
+        generationId: id,
+        ownerId: request.auth!.user.id,
+      });
+      if (!record) {
+        return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generation not found.");
+      }
+    } else {
+      record = requireOwnedGeneration(authorization, request, reply, id, sendError);
+      if (!record) {
+        return;
+      }
     }
 
     const result = await recoverFailedGeneration({
@@ -657,19 +675,20 @@ export async function registerGenerationRoutes(
       return;
     }
 
-    if (!record.outputs.generatedProject) {
+    const project = getServableProject(record);
+    if (!project) {
       return sendError(
         reply,
         request,
         404,
-        ErrorCode.GENERATION_NOT_FOUND,
-        "Generated project files are not available yet.",
+        ErrorCode.ACTIVE_VERSION_NOT_FOUND,
+        "A validated active project version is not available yet.",
       );
     }
 
     const response = GeneratedFileListResponseSchema.parse({
       generationId: id,
-      files: toGeneratedProjectSummary(record.outputs.generatedProject).files,
+      files: toGeneratedProjectSummary(project).files,
     });
 
     return reply.send(response);
@@ -699,13 +718,14 @@ export async function registerGenerationRoutes(
       return;
     }
 
-    if (!record.outputs.generatedProject) {
+    const servableProject = getServableProject(record);
+    if (!servableProject) {
       return sendError(
         reply,
         request,
         404,
-        ErrorCode.GENERATION_NOT_FOUND,
-        "Generated project files are not available yet.",
+        ErrorCode.ACTIVE_VERSION_NOT_FOUND,
+        "A validated active project version is not available yet.",
       );
     }
 
@@ -718,7 +738,7 @@ export async function registerGenerationRoutes(
       return sendError(reply, request, 422, ErrorCode.UNSAFE_FILE_PATH, pathResult.message);
     }
 
-    const file = getGeneratedProjectFile(record.outputs.generatedProject, pathResult.normalizedPath);
+    const file = getGeneratedProjectFile(servableProject, pathResult.normalizedPath);
     if (!file) {
       return sendError(reply, request, 404, ErrorCode.GENERATION_NOT_FOUND, "Generated file was not found.");
     }
@@ -765,17 +785,18 @@ export async function registerGenerationRoutes(
       return;
     }
 
-    if (!record.outputs.generatedProject) {
+    const previewProject = getServableProject(record);
+    if (!previewProject) {
       return sendError(
         reply,
         request,
         404,
-        ErrorCode.GENERATION_NOT_FOUND,
-        "Generated project files are not available yet.",
+        ErrorCode.ACTIVE_VERSION_NOT_FOUND,
+        "A validated active project version is not available yet.",
       );
     }
 
-    const styled = normalizeProjectStyling(record.outputs.generatedProject);
+    const styled = normalizeProjectStyling(previewProject);
     const compiled = await compileTailwindCss(styled.project);
     if (!compiled.ok) {
       return sendError(reply, request, 422, ErrorCode.INTERNAL_ERROR, compiled.message);

@@ -202,6 +202,81 @@ describe("OpenAIProvider", () => {
     ).rejects.toMatchObject({ errorCode: ErrorCode.AI_RESPONSE_INVALID });
   });
 
+  it("maps max_output_tokens incomplete responses to AI_RESPONSE_TRUNCATED", async () => {
+    const provider = new OpenAIProvider(
+      createMockClient({
+        id: "resp_truncated",
+        model: "gpt-4o",
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        output_text: '{"partial":',
+      }),
+      "gpt-4o",
+    );
+
+    await expect(
+      provider.invoke([{ text: "prompt" }], {
+        promptVersion: "1.0.0",
+        model: "gpt-4o",
+        temperature: 0.2,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: ErrorCode.AI_RESPONSE_TRUNCATED,
+      safeMetadata: {
+        providerRequestId: "resp_truncated",
+        reachedProvider: true,
+      },
+    });
+  });
+
+  it("maps refusal output to AI_RESPONSE_REFUSED without exposing refusal text", async () => {
+    const provider = new OpenAIProvider(
+      createMockClient({
+        id: "resp_refused",
+        model: "gpt-4o",
+        status: "completed",
+        output_text: "",
+        output: [{ type: "message", content: [{ type: "refusal", refusal: "sensitive refusal" }] }],
+      }),
+      "gpt-4o",
+    );
+
+    await expect(
+      provider.invoke([{ text: "prompt" }], {
+        promptVersion: "1.0.0",
+        model: "gpt-4o",
+        temperature: 0.2,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: ErrorCode.AI_RESPONSE_REFUSED,
+      message: "OpenAI refused to produce the requested response.",
+    });
+  });
+
+  it("maps failed Responses API context errors to AI_CONTEXT_LIMIT_EXCEEDED", async () => {
+    const provider = new OpenAIProvider(
+      createMockClient({
+        id: "resp_context",
+        model: "gpt-4o",
+        status: "failed",
+        error: { code: "context_length_exceeded", message: "request content omitted" },
+        output_text: "",
+      }),
+      "gpt-4o",
+    );
+
+    await expect(
+      provider.invoke([{ text: "prompt" }], {
+        promptVersion: "1.0.0",
+        model: "gpt-4o",
+        temperature: 0.2,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({ errorCode: ErrorCode.AI_CONTEXT_LIMIT_EXCEEDED });
+  });
+
   it("maps authentication failures to AI_AUTHENTICATION_FAILED", async () => {
     const create = vi.fn().mockRejectedValue(
       createApiError(AuthenticationError, 401, "invalid_api_key", "Incorrect API key provided"),
@@ -298,6 +373,43 @@ describe("OpenAIProvider", () => {
     ).rejects.toMatchObject({ errorCode: ErrorCode.AI_REQUEST_INVALID });
   });
 
+  it("maps context-limit requests separately from generic invalid requests", async () => {
+    const create = vi.fn().mockRejectedValue(
+      createApiError(BadRequestError, 400, "context_length_exceeded", "Maximum context length exceeded."),
+    );
+    const provider = new OpenAIProvider(createMockClient({} as never, create), "gpt-4o");
+
+    await expect(
+      provider.invoke([{ text: "prompt" }], {
+        promptVersion: "1.0.0",
+        model: "gpt-4o",
+        temperature: 0.2,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({ errorCode: ErrorCode.AI_CONTEXT_LIMIT_EXCEEDED });
+  });
+
+  it("maps only unsupported structured response formats to the fallback code", async () => {
+    const create = vi.fn().mockRejectedValue(
+      createApiError(
+        BadRequestError,
+        400,
+        "unsupported_parameter",
+        "The json_schema text.format is not supported by this model.",
+      ),
+    );
+    const provider = new OpenAIProvider(createMockClient({} as never, create), "gpt-4o");
+
+    await expect(
+      provider.invoke([{ text: "prompt" }], {
+        promptVersion: "1.0.0",
+        model: "gpt-4o",
+        temperature: 0.2,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({ errorCode: ErrorCode.AI_RESPONSE_FORMAT_UNSUPPORTED });
+  });
+
   it("maps connection timeouts to AI_TIMEOUT", async () => {
     const create = vi.fn().mockRejectedValue(new APIConnectionTimeoutError({ message: "Request timed out." }));
     const provider = new OpenAIProvider(createMockClient({} as never, create), "gpt-4o");
@@ -369,7 +481,7 @@ describe("mapOpenAIError", () => {
       httpStatus: 400,
       errorType: "invalid_request_error",
       errorCode: "invalid_request_error",
-      message: expect.stringContaining("Invalid input format."),
+      message: "OpenAI request was invalid.",
       requestId: undefined,
       reachedOpenAI: true,
     });
@@ -387,7 +499,7 @@ describe("createAIProvider", () => {
       ...baseEnv,
       AI_PROVIDER: "openai",
       OPENAI_API_KEY: "test-key",
-      OPENAI_MODEL: "gpt-4o",
+      OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4o",
     } as never);
 
     expect(provider.providerName).toBe("openai");
@@ -399,7 +511,7 @@ describe("createAIProvider", () => {
       ...baseEnv,
       AI_PROVIDER: "openai",
       OPENAI_API_KEY: "test-key",
-      OPENAI_MODEL: "gpt-4o",
+      OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4o",
       OPENAI_MAX_RETRIES: 4,
     } as never);
 
@@ -412,7 +524,7 @@ describe("createAIProvider", () => {
         ...baseEnv,
         AI_PROVIDER: "openai",
         OPENAI_API_KEY: "",
-        OPENAI_MODEL: "gpt-4o",
+        OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4o",
       } as never),
     ).toThrow(AIProviderError);
 
@@ -421,7 +533,7 @@ describe("createAIProvider", () => {
         ...baseEnv,
         AI_PROVIDER: "openai",
         OPENAI_API_KEY: "",
-        OPENAI_MODEL: "gpt-4o",
+        OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4o",
       } as never);
     } catch (error) {
       expect(error).toMatchObject({ errorCode: ErrorCode.AI_PROVIDER_NOT_CONFIGURED });
@@ -437,7 +549,7 @@ describe("createAIProvider", () => {
         ...baseEnv,
         AI_PROVIDER: "openai",
         OPENAI_API_KEY: "test-key",
-        OPENAI_MODEL: "gpt-4o",
+        OPENAI_DESIGN_ANALYSIS_MODEL: "gpt-4o",
         MOCK_AI_FAILURE_STAGE: undefined,
       } as never).providerName,
     ).toBe("openai");

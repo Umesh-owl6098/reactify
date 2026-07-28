@@ -14,11 +14,12 @@ import { validateSandboxValidationReport } from "../lib/sandboxValidationReport.
 import { computeProjectHash } from "../lib/projectHash.js";
 import { ConsolePipelineLogger } from "./logger.js";
 import { createMockFailureMessage } from "./mock-failure-stage.js";
-import { logError, logEvent } from "../lib/structured-log.js";
+import { logError, logEvent, logWarn } from "../lib/structured-log.js";
 import type { StageRegistry } from "./registry.js";
 import type { GenerationStore } from "./store.js";
 import type { PipelineState } from "./types.js";
 import { finalizeValidatedRepairVersion } from "../lib/repair/repairVersionFinalization.js";
+import { canAssignReady, ensureInitialVersion } from "../lib/edit/versionStore.js";
 
 const TRANSIENT_STAGE_FAILURE_CODES = new Set<string>([
   ErrorCode.AI_TIMEOUT,
@@ -28,9 +29,28 @@ const TRANSIENT_STAGE_FAILURE_CODES = new Set<string>([
   ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
   ErrorCode.GENERATED_PROJECT_MISSING_REQUIRED_FILES,
   ErrorCode.GENERATED_PROJECT_TOKEN_TRUNCATED,
+  ErrorCode.AI_RESPONSE_TRUNCATED,
   ErrorCode.PROVIDER_RESPONSE_NOT_JSON,
   ErrorCode.AI_RESPONSE_VERSION_MISSING,
 ]);
+
+function toGenerationErrorMetadata(
+  metadata: StageResult["providerMetadata"],
+): Pick<
+  import("./types.js").GenerationErrorRecord,
+  "provider" | "model" | "httpStatus" | "providerRequestId" | "retryable" | "validationIssues"
+> {
+  return metadata
+    ? {
+        provider: metadata.provider,
+        model: metadata.model,
+        httpStatus: metadata.httpStatus,
+        providerRequestId: metadata.providerRequestId,
+        retryable: metadata.retryable,
+        validationIssues: metadata.validationIssues,
+      }
+    : {};
+}
 
 const STAGE_IN_PROGRESS_STATUS: Partial<
   Record<PipelineStageName, import("./types.js").GenerationRecord["status"]>
@@ -83,11 +103,6 @@ function finalizeSuccessfulSegment(
     return;
   }
 
-  if (state.repairRequired && finished.status !== "RepairFailed") {
-    finished.status = "Repairing";
-  } else if (finished.status !== "RepairFailed") {
-    finished.status = "Ready";
-  }
   if (state.generatedProject) {
     finished.outputs.generatedProject = state.generatedProject;
   }
@@ -97,8 +112,21 @@ function finalizeSuccessfulSegment(
   if (!finished.pipelineState) {
     finished.pipelineState = state;
   }
-  if (finished.status === "Ready" && finished.sandboxValidation?.projectHash) {
+  ensureInitialVersion(finished);
+  if (finished.sandboxValidation?.projectHash) {
     finalizeValidatedRepairVersion(finished, finished.sandboxValidation.projectHash);
+  }
+  if (state.repairRequired && finished.status !== "RepairFailed") {
+    finished.status = "Repairing";
+  } else if (finished.status !== "RepairFailed") {
+    finished.status = canAssignReady(finished) ? "Ready" : "Failed";
+    if (finished.status === "Failed") {
+      finished.errors.push({
+        stage: "preview_ready",
+        code: ErrorCode.PROJECT_INTEGRITY_FAILED,
+        message: "Preview readiness requires a validated immutable active project version.",
+      });
+    }
   }
   finished.activeStage = null;
   finished.awaitingPlanConfirmation = false;
@@ -113,6 +141,7 @@ export interface PipelineRunnerServices {
   aiProvider: AIProvider;
   loadPrompt: LoadPromptFn;
   aiConfig: AIStageConfig;
+  resolveAIConfig?: (stage: PipelineStageName) => AIStageConfig;
   repairConfig: {
     maxAttempts: number;
     maxPatchFileBytes: number;
@@ -138,11 +167,19 @@ export type PipelineSegmentResult =
       code: string;
       message: string;
       providerMetadata?: {
+        provider?: string;
+        model?: string;
         httpStatus?: number;
         providerErrorType?: string;
         providerErrorCode?: string;
         providerRequestId?: string;
         providerMessage?: string;
+        retryable?: boolean;
+        validationIssues?: Array<{
+          path: string;
+          code: string;
+          message: string;
+        }>;
       };
     }
   | { outcome: "cancelled" };
@@ -254,10 +291,17 @@ export class PipelineRunner {
     });
 
     const updated = this.store.get(generationId);
+    if (!updated) {
+      return { ok: false, reason: "not_found" };
+    }
+    // Persist the accepted report, validation state, and active immutable
+    // version before the route is allowed to enqueue automatic repair. A fast
+    // worker must never hydrate the pre-validation generation.
+    await this.store.persist(updated);
     const shouldResume =
-      updated?.status !== "RepairFailed" &&
-      updated?.status !== "Cancelled" &&
-      updated?.status !== "Failed";
+      updated.status !== "RepairFailed" &&
+      updated.status !== "Cancelled" &&
+      updated.status !== "Failed";
 
     return { ok: true, duplicate: false, shouldResume };
   }
@@ -277,7 +321,11 @@ export class PipelineRunner {
     options: PipelineRunOptions = {},
   ): Promise<PipelineSegmentResult> {
     if (this.runningGenerations.has(generationId)) {
-      return { outcome: "completed" };
+      return {
+        outcome: "failed",
+        code: ErrorCode.JOB_ALREADY_ACTIVE,
+        message: "Another pipeline attempt is already running for this generation.",
+      };
     }
 
     const record = this.store.get(generationId);
@@ -294,6 +342,7 @@ export class PipelineRunner {
     }
 
     this.runningGenerations.add(generationId);
+    let allowFinalPersist = true;
 
     try {
       // A resumed run starts from its checkpoint, but the record's outputs are
@@ -334,11 +383,13 @@ export class PipelineRunner {
       const startIndex = getStageStartIndex(fromStage);
 
       for (const stageName of PIPELINE_STAGE_ORDER.slice(startIndex)) {
+        context.aiConfig = this.services.resolveAIConfig?.(stageName) ?? this.services.aiConfig;
         if (options.shouldCancel && (await options.shouldCancel())) {
           return { outcome: "cancelled" };
         }
 
         if (options.ownsLock && !(await options.ownsLock())) {
+          allowFinalPersist = false;
           return { outcome: "cancelled" };
         }
 
@@ -400,6 +451,15 @@ export class PipelineRunner {
           context,
           stageName,
         );
+
+        if (options.ownsLock && !(await options.ownsLock())) {
+          allowFinalPersist = false;
+          logWarn("pipeline_stage_post_execution_lock_lost", {
+            generationId,
+            stage: stageName,
+          });
+          return { outcome: "cancelled" };
+        }
 
         if (result.status === "paused") {
           current.repairInProgress = false;
@@ -476,6 +536,7 @@ export class PipelineRunner {
               stage: stageName,
               code: result.errorCode ?? ErrorCode.INTERNAL_ERROR,
               message: result.errorMessage ?? "Automatic repair failed",
+              ...toGenerationErrorMetadata(result.providerMetadata),
             });
             return {
               outcome: "failed",
@@ -490,6 +551,7 @@ export class PipelineRunner {
             stage: stageName,
             code: failureCode,
             message: result.errorMessage ?? "Stage failed",
+            ...toGenerationErrorMetadata(result.providerMetadata),
           });
 
           if (TRANSIENT_STAGE_FAILURE_CODES.has(failureCode)) {
@@ -549,7 +611,7 @@ export class PipelineRunner {
       if (finished?.sandboxResumeInProgress && finished.status === "RepairRequired") {
         finished.sandboxResumeInProgress = false;
       }
-      if (finished) {
+      if (finished && allowFinalPersist) {
         void this.store.persist(finished);
       }
     }

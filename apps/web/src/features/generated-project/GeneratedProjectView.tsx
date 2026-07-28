@@ -11,6 +11,7 @@ import { useRepairStatus } from "../repair/useRepairStatus";
 import { PreviewWorkspace } from "../preview/PreviewWorkspace";
 import { ExportProjectPanel } from "../export/ExportProjectButton";
 import { ProjectEditPanel } from "../project-edit/ProjectEditPanel";
+import { VersionHistoryPanel } from "../version-history/VersionHistoryPanel";
 import { VisualComparisonPanel } from "../visual-comparison/VisualComparisonPanel";
 import { usePreviewStore } from "../preview/previewStore";
 import { usePreviewReadiness } from "../preview/usePreviewReadiness";
@@ -93,6 +94,7 @@ export function GeneratedProjectView({
 
       <ExportProjectPanel status={status} onRefreshStatus={onRefreshStatus} />
       <ProjectEditPanel status={status} onRefreshStatus={onRefreshStatus} />
+      <VersionHistoryPanel status={status} onRefreshStatus={onRefreshStatus} />
       <VisualComparisonPanel status={status} onRefreshStatus={onRefreshStatus} />
 
       {status.status === "RepairFailed" ? (

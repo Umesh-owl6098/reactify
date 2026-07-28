@@ -76,7 +76,8 @@ export class GenerationRepository {
 
   async save(record: GenerationRecord, expectedStateVersion?: number): Promise<GenerationRecord> {
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(
+        async (tx) => {
         const existing = await tx.generation.findUnique({ where: { id: record.id } });
         if (existing && expectedStateVersion !== undefined && existing.stateVersion !== expectedStateVersion) {
           throw new PersistenceError("Generation was modified concurrently.", ErrorCode.CONCURRENT_MODIFICATION);
@@ -112,19 +113,49 @@ export class GenerationRepository {
         }
 
         for (const version of record.versions) {
+          const isActiveVersion = version.versionId === record.activeVersionId;
+          const validationStatus = isActiveVersion
+            ? {
+                schemaValidationStatus:
+                  record.schemaValidation?.valid === true
+                    ? "valid"
+                    : record.schemaValidation
+                      ? "invalid"
+                      : null,
+                staticValidationStatus:
+                  record.staticValidation?.valid === true
+                    ? "valid"
+                    : record.staticValidation
+                      ? "invalid"
+                      : null,
+                compilationStatus:
+                  record.sandboxValidation?.compilation.success === true
+                    ? "passed"
+                    : record.sandboxValidation
+                      ? "failed"
+                      : null,
+                runtimeValidationStatus:
+                  record.sandboxValidation?.runtime.success === true
+                    ? "passed"
+                    : record.sandboxValidation
+                      ? "failed"
+                      : null,
+              }
+            : {};
           const data = {
-              generationId: record.id,
-              versionId: version.versionId,
-              versionNumber: version.versionNumber,
-              source: version.source,
-              label: version.label,
-              projectHash: version.projectHash,
-              parentVersionId: version.parentVersionId,
-              projectSnapshot: version.project,
-              changedFiles: version.changedFiles,
-              editId: version.editId ?? null,
-              instruction: version.instruction ?? null,
-              createdAt: new Date(version.createdAt),
+            generationId: record.id,
+            versionId: version.versionId,
+            versionNumber: version.versionNumber,
+            source: version.source,
+            label: version.label,
+            projectHash: version.projectHash,
+            parentVersionId: version.parentVersionId,
+            projectSnapshot: version.project,
+            changedFiles: version.changedFiles,
+            editId: version.editId ?? null,
+            instruction: version.instruction ?? null,
+            createdAt: new Date(version.createdAt),
+            ...validationStatus,
           };
           await tx.projectVersion.upsert({
             where: {
@@ -134,7 +165,10 @@ export class GenerationRepository {
               },
             },
             create: data,
-            update: data,
+            // Project versions are immutable snapshots. Generation saves may
+            // update validation metadata, but must never rewrite an existing
+            // snapshot that exports, edits, or comparisons already reference.
+            update: validationStatus,
           });
         }
 
@@ -278,7 +312,12 @@ export class GenerationRepository {
           include: generationInclude,
         });
         return mapLoadedGenerationToRecord(saved);
-      });
+        },
+        // Saves upsert every immutable version snapshot (large JSON payloads);
+        // the Prisma default 5s interactive-transaction timeout aborts mid-save
+        // with P2028 once a generation accumulates versions and comparisons.
+        { maxWait: 10_000, timeout: 60_000 },
+      );
     } catch (error) {
       throw mapPrismaError(error);
     }

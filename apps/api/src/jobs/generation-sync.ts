@@ -1,6 +1,8 @@
 import type { PipelineStageName } from "@reactify/generation-contracts";
 import type { GenerationRecord } from "../pipeline/types.js";
 import type { BackgroundJobType } from "./job-types.js";
+import type { ProviderFailureMetadata } from "./provider-failure-metadata.js";
+import { canAssignReady } from "../lib/edit/versionStore.js";
 
 export const JOB_TYPE_TO_STAGE: Partial<Record<BackgroundJobType, PipelineStageName>> = {
   design_analysis: "design_analysis",
@@ -17,7 +19,6 @@ const generationStatusByQueuedJob: Partial<Record<BackgroundJobType, GenerationR
   edit_intent_analysis: "Generating",
   project_edit_generation: "Generating",
   visual_correction: "Repairing",
-  export_preparation: "Ready",
 };
 
 export function generationStatusForQueuedJob(jobType: BackgroundJobType): GenerationRecord["status"] | null {
@@ -45,6 +46,7 @@ export function syncGenerationForJobFailure(
   failureCode?: string | null,
   jobType?: BackgroundJobType,
   failureMessage?: string | null,
+  failureMetadata?: ProviderFailureMetadata,
 ): void {
   if (jobType === "edit_intent_analysis" || jobType === "project_edit_generation") {
     const edit = record.edits.find((entry) => entry.editId === record.activeEditId);
@@ -90,11 +92,23 @@ export function syncGenerationForJobFailure(
   }
 
   const stage = jobType ? JOB_TYPE_TO_STAGE[jobType] : record.activeStage;
+  if (record.status === "Failed" && stage) {
+    // Manual retry resumes from the failed stage; without these flags the
+    // retry route and the failure UI both refuse the generation forever.
+    record.failStage = stage;
+    record.manualRetryAllowed = true;
+  }
   if (stage && failureCode && failureMessage) {
     record.errors.push({
       stage,
       code: failureCode,
       message: failureMessage,
+      provider: failureMetadata?.provider,
+      model: failureMetadata?.model,
+      httpStatus: failureMetadata?.httpStatus,
+      providerRequestId: failureMetadata?.providerRequestId,
+      retryable: failureMetadata?.retryable,
+      validationIssues: failureMetadata?.validationIssues,
     });
   }
   record.updatedAt = new Date().toISOString();
@@ -104,8 +118,7 @@ export function syncGenerationForJobFailure(
 export function restoreGenerationReadyAfterEdit(record: GenerationRecord): void {
   if (
     record.status === "Generating" &&
-    record.outputs.generatedProject &&
-    !record.awaitingSandboxValidation &&
+    canAssignReady(record) &&
     !record.editInProgress
   ) {
     record.status = "Ready";

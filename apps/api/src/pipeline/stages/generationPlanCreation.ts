@@ -1,7 +1,10 @@
 import type { PlanMetadata } from "@reactify/generation-contracts";
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
 import { parseGenerationPlanResponse } from "../../lib/parseGenerationPlan.js";
-import { extractSafeOpenAIErrorFields } from "../../providers/openai-error-utils.js";
+import {
+  extractSafeOpenAIErrorFields,
+  isRetryableAIProviderError,
+} from "../../providers/openai-error-utils.js";
 import { isAIProviderError } from "../../providers/provider-errors.js";
 import { UsageLimitError } from "../../usage/usage-service.js";
 import { toProviderFailureMetadata } from "../../jobs/provider-failure-metadata.js";
@@ -59,6 +62,12 @@ export const generationPlanCreationStage: StageExecutor = async (input, context)
         status: "failed",
         errorCode: parsed.errorCode,
         errorMessage: parsed.message,
+        providerMetadata: {
+          provider: invocation.provider,
+          model: invocation.model,
+          providerRequestId: invocation.providerRequestId,
+          retryable: false,
+        },
         durationMs: invocation.latencyMs,
       };
     }
@@ -128,7 +137,11 @@ export const generationPlanCreationStage: StageExecutor = async (input, context)
         status: "failed",
         errorCode: error.errorCode,
         errorMessage: error.message,
-        providerMetadata: toProviderFailureMetadata(safeFields),
+        providerMetadata: toProviderFailureMetadata(safeFields, {
+          provider: context.aiProvider.providerName,
+          model: context.aiConfig.model,
+          retryable: isRetryableAIProviderError(error),
+        }),
         durationMs: 0,
       };
     }

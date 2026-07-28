@@ -19,7 +19,7 @@ import { PersistenceService } from "../src/persistence/PersistenceService.js";
 import { GenerationStore } from "../src/pipeline/store.js";
 import { defaultLoadPrompt } from "../src/prompts/loader.js";
 import { createAIProvider } from "../src/providers/providerFactory.js";
-import { resolveActiveModel } from "../src/providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../src/providers/ai-provider-config.js";
 
 const generationId = process.argv[2] ?? "a1178bcb-8c58-4f0a-8884-d50082445368";
 
@@ -71,12 +71,7 @@ async function main() {
     flags: DEFAULT_FEATURE_FLAGS,
     aiProvider: createAIProvider(env),
     loadPrompt: defaultLoadPrompt,
-    aiConfig: {
-      model: resolveActiveModel(env),
-      temperature: env.AI_TEMPERATURE,
-      maxTokens: env.AI_MAX_TOKENS,
-      timeoutMs: env.AI_TIMEOUT_MS,
-    },
+    aiConfig: resolveOperationAIConfig(env, "design_analysis"),
     repairConfig: {
       maxAttempts: env.MAX_REPAIR_ATTEMPTS,
       maxPatchFileBytes: env.MAX_PATCH_FILE_BYTES,

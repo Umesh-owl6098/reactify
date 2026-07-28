@@ -9,6 +9,7 @@ import {
 } from "../../lib/generation-api";
 import { useGenerationScopedFetch } from "../generation/useGenerationScopedFetch";
 import { keepGenerationRecords } from "../generation/generationScopedRecords";
+import { usePreviewStore } from "../preview/previewStore";
 import { VIEWPORT_DIMENSIONS, useVisualComparisonStore } from "./visualComparisonStore";
 
 export function useVisualComparison(
@@ -175,6 +176,10 @@ export function useVisualComparison(
 
     try {
       const viewport = VIEWPORT_DIMENSIONS[viewportPreset];
+      // The capture reads the live Sandpack iframe, so the preview must render
+      // at the requested comparison viewport (e.g. mobile), not whatever size
+      // the preview panel happens to be showing.
+      usePreviewStore.getState().setViewportPreset(viewportPreset);
       const comparison = await createVisualComparison(status.id, {
         expectedProjectHash: status.projectHash,
         viewport,

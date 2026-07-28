@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { generatedProjectFixture } from "@reactify/test-utils";
 import { compileTailwindCss, cssContainsUtilityRules } from "./compileTailwindCss.js";
 import { normalizeProjectStyling } from "./normalizeProjectStyling.js";
-import { validateTailwindSetup, detectVerticalStackLayoutMismatch } from "./tailwindValidator.js";
+import {
+  validateTailwindSetup,
+  detectVerticalStackLayoutMismatch,
+  validateTailwindCssCoverage,
+  compileFailureIsProjectThemeFalsePositive,
+} from "./tailwindValidator.js";
 
 describe("normalizeProjectStyling", () => {
   it("injects postcss and tailwind config for Tailwind projects", () => {
@@ -62,6 +67,48 @@ describe("validateTailwindSetup", () => {
     const { project } = normalizeProjectStyling(generatedProjectFixture);
     const issues = validateTailwindSetup(project);
     expect(issues).toEqual([]);
+  });
+});
+
+describe("validateTailwindCssCoverage", () => {
+  const compiledCss = ".flex{display:flex}.font-bold{font-weight:700}";
+
+  it("does not fail utilities provided by the project's own tailwind config theme", () => {
+    const config = `module.exports = { theme: { extend: { fontFamily: { buttonText: ["Inter"] } } } };`;
+    const issues = validateTailwindCssCoverage(["flex", "font-buttonText"], compiledCss, config);
+    expect(issues).toHaveLength(0);
+  });
+
+  it("still fails utilities absent from both the compiled CSS and the config", () => {
+    const config = `module.exports = { theme: { extend: {} } };`;
+    const issues = validateTailwindCssCoverage(["flex", "font-nonexistent"], compiledCss, config);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.code).toBe("MISSING_TAILWIND_UTILITY_CSS");
+    expect(issues[0]?.message).toContain("font-nonexistent");
+  });
+
+  it("fails standard utilities missing when no config content is supplied", () => {
+    const issues = validateTailwindCssCoverage(["grid"], compiledCss);
+    expect(issues).toHaveLength(1);
+  });
+});
+
+describe("compileFailureIsProjectThemeFalsePositive", () => {
+  const config = `module.exports = { theme: { extend: { colors: { "background-light-gray": "#f5f5f5" } } } };`;
+
+  it("recognizes @apply failures for classes declared in the project config", () => {
+    const message =
+      "src/index.css:6:3: The `bg-background-light-gray` class does not exist. If `bg-background-light-gray` is a custom class, make sure it is defined within a `@layer` directive.";
+    expect(compileFailureIsProjectThemeFalsePositive(message, config)).toBe(true);
+  });
+
+  it("keeps failing for classes the project config never declares", () => {
+    const message = "src/index.css:6:3: The `bg-made-up-thing` class does not exist.";
+    expect(compileFailureIsProjectThemeFalsePositive(message, config)).toBe(false);
+  });
+
+  it("keeps failing for unrelated compile errors", () => {
+    expect(compileFailureIsProjectThemeFalsePositive("Unexpected token", config)).toBe(false);
   });
 });
 

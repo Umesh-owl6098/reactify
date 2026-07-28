@@ -3,12 +3,26 @@ import type { EditOperationSummary, GenerationStatusResponse } from "@reactify/g
 import {
   confirmProjectEdit,
   createProjectEdit,
+  fetchEditDetail,
   fetchEditHistory,
   submitEditClarification,
 } from "../../lib/generation-api";
 import { useGenerationScopedFetch } from "../generation/useGenerationScopedFetch";
 import { keepGenerationRecord, keepGenerationRecords } from "../generation/generationScopedRecords";
 import { useProjectEditStore } from "./projectEditStore";
+
+const EDIT_IN_PROGRESS_STATUSES = new Set([
+  "analyzing",
+  "generating_patch",
+  "validating_patch",
+  "applying_patch",
+]);
+const EDIT_POLL_INTERVAL_MS = 1500;
+const EDIT_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function shortenHash(value: string | null | undefined, length = 12): string {
   if (!value) {
@@ -91,9 +105,40 @@ export function useProjectEdit(status: GenerationStatusResponse | null, onRefres
     setActiveEdit(summary);
   }, [generationId, latestEditId, status?.latestEditSummary, setActiveEdit]);
 
+  const generationIdRef = useRef<string | null>(generationId);
+  generationIdRef.current = generationId;
+
+  // In worker mode the API accepts the edit with 202 and processes it in the
+  // background; poll the edit until it leaves an in-progress status.
+  const pollEditUntilSettled = useCallback(
+    async (scopeGenerationId: string, editId: string): Promise<EditOperationSummary> => {
+      const deadline = Date.now() + EDIT_POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await delay(EDIT_POLL_INTERVAL_MS);
+        if (generationIdRef.current !== scopeGenerationId) {
+          throw new Error("Generation changed while the edit was processing.");
+        }
+        const detail = await fetchEditDetail(scopeGenerationId, editId);
+        if (!EDIT_IN_PROGRESS_STATUSES.has(detail.edit.status)) {
+          return detail.edit;
+        }
+        setActiveEdit(detail.edit);
+      }
+      throw new Error("The edit is taking longer than expected. Check the edit history for its final status.");
+    },
+    [setActiveEdit],
+  );
+
   const handleEditResponse = useCallback(
     async (edit: EditOperationSummary) => {
       setActiveEdit(edit);
+
+      if (EDIT_IN_PROGRESS_STATUSES.has(edit.status)) {
+        setPhase("processing");
+        const settled = await pollEditUntilSettled(edit.generationId, edit.editId);
+        setActiveEdit(settled);
+        edit = settled;
+      }
 
       if (edit.status === "clarification_required") {
         setPhase("clarifying");
@@ -122,9 +167,15 @@ export function useProjectEdit(status: GenerationStatusResponse | null, onRefres
       if (edit.status === "failed") {
         setPhase("failed");
         setError(edit.failureReason ?? "Edit failed.");
+        return;
+      }
+
+      if (edit.status === "cancelled") {
+        setPhase("idle");
+        await loadHistory(true);
       }
     },
-    [loadHistory, onRefreshStatus, setActiveEdit, setError, setPhase],
+    [loadHistory, onRefreshStatus, pollEditUntilSettled, setActiveEdit, setError, setPhase],
   );
 
   const submitEdit = useCallback(async () => {

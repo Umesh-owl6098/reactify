@@ -21,6 +21,13 @@ const STAGE_JOB_TYPE: Partial<Record<PipelineStageName, BackgroundJobType>> = {
   design_analysis: "design_analysis",
   generation_plan_creation: "generation_plan_creation",
   react_project_generation: "react_project_generation",
+  // Validation-stage failures are recovered by regenerating the project; the
+  // pipeline re-runs validation on the fresh output.
+  schema_validation: "react_project_generation",
+  static_validation: "react_project_generation",
+  sandbox_compilation: "react_project_generation",
+  runtime_validation: "react_project_generation",
+  preview_ready: "react_project_generation",
   automatic_repair: "automatic_repair",
 };
 
@@ -35,6 +42,10 @@ export function resolveRecoveryJobType(
 
   if (requested === "generation_plan_creation" && !record.outputs.designAnalysis) {
     return "design_analysis";
+  }
+
+  if (requested === "react_project_generation" && !record.outputs.generationPlan) {
+    return record.outputs.designAnalysis ? "generation_plan_creation" : "design_analysis";
   }
 
   return requested;
@@ -52,6 +63,9 @@ export function isGenerationRetryAllowed(record: GenerationRecord): boolean {
 
   if (RECOVERABLE_FAILURE_CODES.has(latestError.code)) {
     // continue to stage checks below
+  } else if (latestError.retryable === true) {
+    // The pipeline already classified this failure as retryable when it was
+    // persisted (provider errors, truncation, validation of a fresh attempt).
   } else if (isLegacyForcedFailureError(latestError.code, latestError.message)) {
     // Legacy injected failures used INTERNAL_ERROR before MOCK_FAILURE_INJECTED existed.
   } else {

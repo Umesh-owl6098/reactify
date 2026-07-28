@@ -2,7 +2,7 @@
  * Safe OpenAI request diagnostic. Never prints API keys, prompts, or image data.
  */
 import { validateEnv } from "../src/env.js";
-import { resolveActiveModel } from "../src/providers/ai-provider-config.js";
+import { resolveConfiguredAIModels, resolveOperationAIConfig } from "../src/providers/ai-provider-config.js";
 import OpenAI, { APIError } from "openai";
 
 function safeErrorFields(error: unknown) {
@@ -29,7 +29,7 @@ function safeErrorFields(error: unknown) {
 
 async function main() {
   const env = validateEnv();
-  const model = resolveActiveModel(env);
+  const model = resolveOperationAIConfig(env, "design_analysis").model;
   const keyPresent = Boolean(env.OPENAI_API_KEY?.trim());
   const keyLength = env.OPENAI_API_KEY?.trim().length ?? 0;
   const keyHasSurroundingQuotes =
@@ -41,7 +41,7 @@ async function main() {
     keyPresent,
     keyLength,
     keyHasSurroundingQuotes,
-    openaiModelEnv: env.OPENAI_MODEL,
+    configuredModels: resolveConfiguredAIModels(env),
   });
 
   if (env.AI_PROVIDER !== "openai" || !keyPresent) {

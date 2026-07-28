@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reactify
+          POSTGRES_PASSWORD: reactify_dev
+          POSTGRES_DB: reactify
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U reactify -d reactify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://reactify:reactify_dev@localhost:5434/reactify_test
+      TEST_DATABASE_URL: postgresql://reactify:reactify_dev@localhost:5434/reactify_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=reactify_dev psql -h localhost -p 5434 -U reactify -d reactify \
+            -c "CREATE DATABASE reactify_test;"
+
+      - name: Generate Prisma client and migrate test database
+        run: |
+          corepack pnpm db:generate
+          corepack pnpm db:deploy
+
+      - name: Typecheck
+        run: corepack pnpm typecheck
+
+      - name: Lint
+        run: corepack pnpm lint
+
+      - name: Test
+        run: corepack pnpm test
+
+      - name: Build
+        run: corepack pnpm build

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PIPELINE_STAGE_ORDER } from "@reactify/generation-contracts";
 import { MockAIProvider, generationPlanFixture } from "@reactify/test-utils";
 import { PipelineRunner } from "./PipelineRunner.js";
@@ -144,6 +144,25 @@ describe("PipelineRunner", () => {
     const result = await runner.runSegment(generationId, undefined, { stopAfter: "design_analysis" });
     expect(result.outcome).toBe("completed");
     expect(store.get(generationId)?.outputs.designAnalysis).not.toBeNull();
+  });
+
+  it("does not apply or persist stage output after the worker lock is lost", async () => {
+    const generationId = store.create({ imageId }).id;
+    const persist = vi.fn().mockResolvedValue(undefined);
+    store.setPersistHandler(persist);
+    let lockCheck = 0;
+
+    const result = await runner.runSegment(generationId, undefined, {
+      stopAfter: "design_analysis",
+      ownsLock: async () => {
+        lockCheck += 1;
+        return lockCheck < 6;
+      },
+    });
+
+    expect(result.outcome).toBe("cancelled");
+    expect(store.get(generationId)?.outputs.designAnalysis).toBeNull();
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("marks the pipeline cancelled when cancelled mid-run", async () => {

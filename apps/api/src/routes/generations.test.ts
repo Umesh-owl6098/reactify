@@ -124,6 +124,37 @@ describe("generation routes", () => {
     expect(body.confirmedAt).not.toBeNull();
   });
 
+  it("returns safe terminal error metadata in generation status", async () => {
+    const record = pipeline.store.create({ ownerId: userId, imageId });
+    record.status = "Failed";
+    record.activeStage = null;
+    record.errors.push({
+      stage: "react_project_generation",
+      code: "GENERATED_PROJECT_SCHEMA_INVALID",
+      message: "Generated project response failed schema validation.",
+      provider: "openai",
+      model: "gpt-test",
+      httpStatus: 422,
+      providerRequestId: "req-safe-123",
+      retryable: false,
+      validationIssues: [
+        {
+          path: "files.0.path",
+          code: "invalid_type",
+          message: "Expected string.",
+        },
+      ],
+    });
+
+    const response = await authed(app, authCookie, {
+      method: "GET",
+      url: `/api/v1/generations/${record.id}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().errors).toEqual(record.errors);
+  });
+
   it("returns 409 when confirming a cancelled generation", async () => {
     const createResponse = await authed(app, authCookie, {
       method: "POST",

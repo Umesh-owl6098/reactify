@@ -215,6 +215,40 @@ describe("repairVersionFinalization", () => {
     expect(record.activeVersionId).toBe(activeVersionId);
   });
 
+  it("reactivates an identical snapshot without mutating version history", () => {
+    const originalHash = computeProjectHash(generatedProjectFixture);
+    const repaired = createRepairedProject();
+    const record = createReadyRecord();
+    const original = ensureInitialVersion(record)!;
+    createProjectVersion({
+      record,
+      project: repaired.project,
+      source: "automatic_repair",
+      label: "Repair attempt 1",
+      parentVersionId: original.versionId,
+    });
+    const immutableSnapshot = structuredClone(original);
+
+    record.outputs.generatedProject = structuredClone(generatedProjectFixture);
+    record.projectHash = originalHash;
+    record.sandboxValidation = {
+      projectHash: originalHash,
+      compilation: { success: true, durationMs: 1, errors: [], warnings: [] },
+      runtime: { success: true, durationMs: 1, errors: [], warnings: [] },
+      validatedAt: new Date().toISOString(),
+    };
+    record.pipelineState = {
+      imageId: record.imageId,
+      generatedProject: structuredClone(generatedProjectFixture),
+      projectHash: originalHash,
+    };
+
+    expect(finalizeValidatedRepairVersion(record, originalHash)).toBe(true);
+    expect(record.activeVersionId).toBe(original.versionId);
+    expect(record.versions[0]).toEqual(immutableSnapshot);
+    expect(record.versions).toHaveLength(2);
+  });
+
   it("computes deterministic hashes regardless of file order", () => {
     const reversed = {
       ...generatedProjectFixture,

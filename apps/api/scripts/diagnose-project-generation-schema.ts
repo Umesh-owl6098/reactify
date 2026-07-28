@@ -6,7 +6,7 @@ import { validateEnv } from "../src/env.js";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
 import { getPrismaClient } from "../src/persistence/client.js";
 import { createAIProvider } from "../src/providers/providerFactory.js";
-import { resolveActiveModel } from "../src/providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../src/providers/ai-provider-config.js";
 import { defaultLoadPrompt } from "../src/prompts/loader.js";
 import { ALLOWED_DEPENDENCIES } from "../src/lib/allowlist.js";
 import { GENERATED_PROJECT_V1_JSON_SCHEMA } from "../src/lib/generated-project-json-schema.js";
@@ -33,7 +33,7 @@ async function main() {
 
   const prompt = defaultLoadPrompt("react-project-generation");
   const provider = createAIProvider(env);
-  const model = resolveActiveModel(env);
+  const aiConfig = resolveOperationAIConfig(env, "react_project_generation");
   const allowlist = JSON.stringify([...ALLOWED_DEPENDENCIES].sort());
 
   const invocation = await provider.invoke(
@@ -45,10 +45,8 @@ async function main() {
     ],
     {
       promptVersion: prompt.meta.promptVersion,
-      model,
-      temperature: env.AI_TEMPERATURE,
-      maxTokens: env.AI_MAX_TOKENS,
-      timeoutMs: Math.max(env.AI_TIMEOUT_MS, 180_000),
+      ...aiConfig,
+      timeoutMs: Math.max(aiConfig.timeoutMs, 180_000),
       responseFormat: {
         type: "json_schema",
         name: "generated_project_v1",
@@ -72,8 +70,6 @@ async function main() {
         inputTokens: invocation.inputTokens,
         outputTokens: invocation.outputTokens,
         rawLength: invocation.rawText.length,
-        rawPreview: invocation.rawText.slice(0, 400),
-        rawTail: invocation.rawText.slice(-120),
         parseOk: detailed.ok,
         errorCode: detailed.ok ? null : detailed.errorCode,
         message: detailed.ok ? null : detailed.message,

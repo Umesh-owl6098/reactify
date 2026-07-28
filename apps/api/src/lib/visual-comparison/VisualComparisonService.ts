@@ -17,7 +17,7 @@ import type { ImageStorage } from "../imageStorage.js";
 import { applyProjectPatch } from "../repair/patchApplicator.js";
 import { validateProjectPatch } from "../repair/patchValidator.js";
 import { AIProviderError } from "../../providers/provider-errors.js";
-import { resolveActiveModel } from "../../providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../../providers/ai-provider-config.js";
 import { createProjectVersion } from "../edit/versionStore.js";
 import { ComparisonArtifactStore } from "./comparisonArtifactStore.js";
 import { runVisualComparison } from "./comparisonEngine.js";
@@ -549,6 +549,7 @@ export class VisualComparisonService {
     try {
       const prompt = this.deps.loadPrompt("visual-correction");
       const allowlist = JSON.stringify([...ALLOWED_DEPENDENCIES].sort());
+      const aiConfig = resolveOperationAIConfig(this.deps.env, "visual_correction");
       const priorAttempts = record.visualComparisons
         .filter((entry) => entry.correctionAttemptNumber)
         .map((entry) => ({
@@ -601,10 +602,10 @@ export class VisualComparisonService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: resolveActiveModel(this.deps.env),
-          temperature: this.deps.env.AI_TEMPERATURE,
-          maxTokens: this.deps.env.AI_MAX_TOKENS,
-          timeoutMs: this.deps.env.AI_TIMEOUT_MS,
+          model: aiConfig.model,
+          temperature: aiConfig.temperature,
+          maxTokens: aiConfig.maxTokens,
+          timeoutMs: aiConfig.timeoutMs,
         },
       );
 

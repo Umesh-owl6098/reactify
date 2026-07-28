@@ -14,10 +14,10 @@ describe("JobRunner generation refresh", () => {
     });
 
     const inMemoryRecord: GenerationRecord = {
-      id: "gen-1",
-      ownerId: "owner",
-      imageId: "image-1",
-      projectId: "project-1",
+      id: "1a8e35c1-9c1d-4f57-8a3e-0d3b6f6f1a01",
+      ownerId: "4dbf68f4-6f4a-4c8a-9d6b-3a6e9c9d4d04",
+      imageId: "2b9f46d2-8d2e-4a68-9b4f-1e4c7a7b2b02",
+      projectId: "5ec079a5-5a5b-4d9b-8e7c-4b7f0d0e5e05",
       status: "Analyzing",
       activeStage: "design_analysis",
       stages: [],
@@ -82,16 +82,16 @@ describe("JobRunner generation refresh", () => {
     }));
 
     const jobRecord = {
-      id: "job-1",
-      generationId: "gen-1",
-      ownerId: "owner",
+      id: "3caf57e3-7e3f-4b79-8c5a-2f5d8b8c3c03",
+      generationId: "1a8e35c1-9c1d-4f57-8a3e-0d3b6f6f1a01",
+      ownerId: "4dbf68f4-6f4a-4c8a-9d6b-3a6e9c9d4d04",
       jobType: "design_analysis",
       attemptNumber: 1,
       maxAttempts: 3,
       cancellationRequested: false,
       status: "running",
       correlationId: "corr-1",
-      payload: { generationId: "gen-1", imageId: "image-1" },
+      payload: { generationId: "1a8e35c1-9c1d-4f57-8a3e-0d3b6f6f1a01", imageId: "2b9f46d2-8d2e-4a68-9b4f-1e4c7a7b2b02" },
     };
 
     const handler = vi.fn(async () => ({ result: { stage: "design_analysis" } }));
@@ -130,9 +130,9 @@ describe("JobRunner generation refresh", () => {
       loadGenerationById,
     });
 
-    await runner.executeJobById("job-1", { skipClaim: true });
+    await runner.executeJobById("3caf57e3-7e3f-4b79-8c5a-2f5d8b8c3c03", { skipClaim: true });
 
-    expect(loadGenerationById).toHaveBeenCalledWith("gen-1");
+    expect(loadGenerationById).toHaveBeenCalledWith("1a8e35c1-9c1d-4f57-8a3e-0d3b6f6f1a01");
     expect(store.hydrate).toHaveBeenCalled();
     expect(inMemoryRecord.failStage).toBeUndefined();
     expect(resolveMockFailureStage(env.MOCK_AI_FAILURE_STAGE)).toBeUndefined();

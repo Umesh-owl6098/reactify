@@ -3,6 +3,7 @@ import { ErrorCode, type ErrorCode as ErrorCodeType } from "@reactify/shared";
 import { computeProjectHash } from "../projectHash.js";
 import { validateRequiredProjectFiles } from "../validation/requiredFilesValidator.js";
 import type { GenerationRecord } from "../../pipeline/types.js";
+import { getValidActiveVersion } from "../edit/versionStore.js";
 
 export type VisualComparisonEligibilityResult =
   | { ok: true }
@@ -129,7 +130,8 @@ export function evaluateVisualComparisonEligibility(
     };
   }
 
-  if (!record.projectHash || !record.activeVersionId) {
+  const activeVersion = getValidActiveVersion(record);
+  if (!activeVersion) {
     return {
       ok: false,
       reason: "active_version_not_found",
@@ -170,7 +172,7 @@ export function evaluateVisualComparisonEligibility(
   const sandboxValid =
     record.sandboxValidation?.compilation.success === true &&
     record.sandboxValidation?.runtime.success === true &&
-    record.sandboxValidation.projectHash === record.projectHash;
+    record.sandboxValidation.projectHash === activeVersion.projectHash;
   if (!sandboxValid) {
     return {
       ok: false,
@@ -180,8 +182,8 @@ export function evaluateVisualComparisonEligibility(
     };
   }
 
-  const computedHash = computeProjectHash(record.outputs.generatedProject);
-  if (computedHash !== record.projectHash) {
+  const computedHash = computeProjectHash(activeVersion.project);
+  if (computedHash !== activeVersion.projectHash) {
     return {
       ok: false,
       reason: "project_integrity_failed",
@@ -190,7 +192,7 @@ export function evaluateVisualComparisonEligibility(
     };
   }
 
-  const requiredIssues = validateRequiredProjectFiles(record.outputs.generatedProject);
+  const requiredIssues = validateRequiredProjectFiles(activeVersion.project);
   if (requiredIssues.length > 0) {
     return {
       ok: false,

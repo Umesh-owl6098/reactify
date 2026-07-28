@@ -5,7 +5,7 @@ import type { Env } from "../env.js";
 import {
   aiProviderNotConfiguredError,
   assertAIProviderConfigured,
-  resolveActiveModel,
+  resolveOperationAIConfig,
 } from "./ai-provider-config.js";
 import { createAnthropicProvider } from "./AnthropicProvider.js";
 import { createOpenAIProvider } from "./OpenAIProvider.js";
@@ -34,11 +34,15 @@ export function createAIProvider(env: Env, override?: AIProvider): AIProvider {
   }
 
   if (env.AI_PROVIDER === "openai") {
-    return createOpenAIProvider(env.OPENAI_API_KEY!, resolveActiveModel(env), env.OPENAI_MAX_RETRIES);
+    return createOpenAIProvider(
+      env.OPENAI_API_KEY!,
+      resolveOperationAIConfig(env, "design_analysis").model,
+      env.OPENAI_MAX_RETRIES,
+    );
   }
 
   if (env.AI_PROVIDER === "anthropic") {
-    return createAnthropicProvider(env.ANTHROPIC_API_KEY!, resolveActiveModel(env));
+    return createAnthropicProvider(env.ANTHROPIC_API_KEY!, env.ANTHROPIC_MODEL);
   }
 
   throw new AIProviderError(

@@ -1,7 +1,7 @@
 import { GeneratedProjectV1Schema, type GeneratedProjectV1 } from "@reactify/generation-contracts";
 import type { GenerationRecord, PipelineState } from "../../pipeline/types.js";
 import { evaluateExportEligibility } from "../export/exportEligibility.js";
-import { createProjectVersion, getActiveVersion } from "../edit/versionStore.js";
+import { activateVersion, createProjectVersion, getActiveVersion } from "../edit/versionStore.js";
 import { computeProjectHash } from "../projectHash.js";
 import { logEvent } from "../structured-log.js";
 
@@ -96,16 +96,21 @@ export function finalizeValidatedRepairVersion(record: GenerationRecord, validat
     return false;
   }
 
-  const existingVersion = record.versions.find((version) => version.versionId === validatedProjectHash);
+  const existingVersion = record.versions.find(
+    (version) =>
+      version.projectHash === validatedProjectHash &&
+      computeProjectHash(version.project) === validatedProjectHash,
+  );
   const latestAttempt = record.repairAttempts.at(-1);
 
   record.outputs.generatedProject = structuredClone(project);
   record.projectHash = validatedProjectHash;
 
   if (existingVersion) {
-    existingVersion.project = structuredClone(project);
-    existingVersion.projectHash = validatedProjectHash;
-    record.activeVersionId = existingVersion.versionId;
+    // Version snapshots are append-only. Reuse an identical immutable
+    // snapshot, but never rewrite a row that may already be referenced by an
+    // edit, comparison, or export.
+    activateVersion(record, existingVersion.versionId);
   } else {
     createProjectVersion({
       record,

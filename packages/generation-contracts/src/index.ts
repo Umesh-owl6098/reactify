@@ -34,6 +34,7 @@ export {
   DeleteGenerationResponseSchema,
   GenerationDurationsSchema,
   GenerationErrorSchema,
+  GenerationValidationIssueSchema,
   GenerationFeatureFlagsSchema,
   GenerationListResponseSchema,
   GenerationOutputsSchema,
@@ -47,9 +48,11 @@ export {
   type CreateGenerationResponse,
   type DeleteGenerationResponse,
   type GenerationListResponse,
+  type GenerationError,
   type GenerationStatusResponse,
   type GenerationSummary,
   type GenerationUserStatus,
+  type GenerationValidationIssue,
 } from "./generation-api.js";
 export {
   GeneratedFileListResponseSchema,

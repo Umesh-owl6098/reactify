@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { generationPlanFixture } from "@reactify/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { generatedProjectFixture, generationPlanFixture } from "@reactify/test-utils";
+import type { JobService } from "../jobs/job-service.js";
+import { computeProjectHash } from "../lib/projectHash.js";
 import {
   completeSandboxValidation,
   createFailedCompilationSandboxValidationReport,
@@ -401,5 +403,70 @@ describe("sandbox validation endpoint", () => {
     const record = pipeline.store.get(generationId);
     expect(record?.status).toBe("Ready");
     expect(record?.stages.filter((stage) => stage.stage === "automatic_repair")).toHaveLength(1);
+  });
+
+  it("persists accepted validation and version state before repair enqueue", async () => {
+    let persisted = false;
+    const callOrder: string[] = [];
+    const jobService = {
+      enqueue: vi.fn().mockImplementation(async (params) => {
+        callOrder.push("enqueue");
+        expect(persisted).toBe(true);
+        return {
+          job: {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            generationId: params.generationId,
+            jobType: "automatic_repair",
+            status: "queued",
+            createdAt: new Date().toISOString(),
+            statusUrl: "/api/v1/jobs/11111111-1111-4111-8111-111111111111",
+          },
+          created: true,
+        };
+      }),
+    } as unknown as JobService;
+    const server = await createTestServer({
+      jobs: { jobService, jobRunner: {} as never, usageService: {} as never },
+      pipelineEnv: { AI_PROVIDER: "anthropic" },
+    });
+
+    try {
+      const generationId = server.pipeline.runner.start({
+        ownerId: server.userId,
+        imageId: "660e8400-e29b-41d4-a716-446655440000",
+      });
+      const record = server.pipeline.store.get(generationId)!;
+      const projectHash = computeProjectHash(generatedProjectFixture);
+      record.status = "Compiling";
+      record.outputs.generatedProject = structuredClone(generatedProjectFixture);
+      record.projectHash = projectHash;
+      record.schemaValidation = { valid: true, errors: [] };
+      record.staticValidation = { valid: true, errors: [], warnings: [] };
+      record.awaitingSandboxValidation = true;
+      record.pipelineState = {
+        imageId: record.imageId,
+        generatedProject: structuredClone(generatedProjectFixture),
+        projectHash,
+      };
+      server.pipeline.store.setPersistHandler(async (persistedRecord) => {
+        callOrder.push("persist");
+        expect(persistedRecord.validationReportFingerprint).toBeTruthy();
+        expect(persistedRecord.activeVersionId).toBeTruthy();
+        expect(persistedRecord.versions).toHaveLength(1);
+        persisted = true;
+      });
+
+      const response = await submitSandboxValidationReport(
+        server.app,
+        generationId,
+        createSuccessfulSandboxValidationReport({ generationId, projectHash }),
+        server.authCookie,
+      );
+
+      expect(response.statusCode).toBe(202);
+      expect(callOrder).toEqual(["persist", "enqueue"]);
+    } finally {
+      await server.app.close();
+    }
   });
 });

@@ -3,6 +3,7 @@ import { ErrorCode, type ErrorCode as ErrorCodeType } from "@reactify/shared";
 import { computeProjectHash } from "../projectHash.js";
 import { validateRequiredProjectFiles } from "../validation/requiredFilesValidator.js";
 import type { GenerationRecord } from "../../pipeline/types.js";
+import { getValidActiveVersion } from "./versionStore.js";
 
 export type EditEligibilityResult =
   | { ok: true }
@@ -115,7 +116,8 @@ export function evaluateEditEligibility(record: GenerationRecord | undefined): E
     };
   }
 
-  if (!record.projectHash || !record.activeVersionId) {
+  const activeVersion = getValidActiveVersion(record);
+  if (!activeVersion) {
     return {
       ok: false,
       reason: "active_version_not_found",
@@ -145,8 +147,8 @@ export function evaluateEditEligibility(record: GenerationRecord | undefined): E
     };
   }
 
-  const computedHash = computeProjectHash(record.outputs.generatedProject);
-  if (computedHash !== record.projectHash) {
+  const computedHash = computeProjectHash(activeVersion.project);
+  if (computedHash !== activeVersion.projectHash) {
     return {
       ok: false,
       reason: "project_integrity_failed",
@@ -155,7 +157,7 @@ export function evaluateEditEligibility(record: GenerationRecord | undefined): E
     };
   }
 
-  const requiredIssues = validateRequiredProjectFiles(record.outputs.generatedProject);
+  const requiredIssues = validateRequiredProjectFiles(activeVersion.project);
   if (requiredIssues.length > 0) {
     return {
       ok: false,

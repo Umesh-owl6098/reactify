@@ -1,5 +1,6 @@
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
 import { runSchemaProjectValidation } from "../../lib/validation/staticProjectValidator.js";
+import { toSafeValidationIssues } from "../../jobs/provider-failure-metadata.js";
 import type { PipelineState } from "../types.js";
 
 export const schemaValidationStage: StageExecutor = async (input) => {
@@ -24,6 +25,16 @@ export const schemaValidationStage: StageExecutor = async (input) => {
       status: "failed",
       errorCode: ErrorCode.GENERATED_PROJECT_SCHEMA_INVALID,
       errorMessage: result.errors[0]?.message ?? "Generated project failed schema validation.",
+      providerMetadata: {
+        retryable: false,
+        validationIssues: toSafeValidationIssues(
+          result.errors.map((issue) => ({
+            path: issue.filePath ?? "(project)",
+            code: issue.code,
+            message: issue.message,
+          })),
+        ),
+      },
       output,
       durationMs: 0,
     } satisfies StageResult<Partial<PipelineState>>;

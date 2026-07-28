@@ -88,7 +88,17 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
   }, [resetPreview, status.id]);
 
   useEffect(() => {
-    if (!status.projectHash || !status.repair?.clientRevalidationRequired) {
+    // Edits and visual corrections change the project hash and wait for a new
+    // browser validation without a repair snapshot; keying only off the repair
+    // flag left the previous report state in place and stalled revalidation
+    // until a manual page reload.
+    const revalidationRequired =
+      Boolean(status.repair?.clientRevalidationRequired) || awaitingValidation;
+    if (!status.projectHash || !revalidationRequired) {
+      return;
+    }
+
+    if (loadedProjectHashRef.current === status.projectHash && !status.repair?.clientRevalidationRequired) {
       return;
     }
 
@@ -97,7 +107,13 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
     loadedProjectHashRef.current = null;
     setLoadedFiles(null);
     setCompiledStylesheet(null);
-  }, [reloadPreview, resetPreviewReport, status.projectHash, status.repair?.clientRevalidationRequired]);
+  }, [
+    awaitingValidation,
+    reloadPreview,
+    resetPreviewReport,
+    status.projectHash,
+    status.repair?.clientRevalidationRequired,
+  ]);
 
   useEffect(() => {
     if (!status.projectHash || !shouldLoadPreviewFiles) {
@@ -272,7 +288,12 @@ export function PreviewWorkspace({ status, screenshotUrl, onValidationReportSubm
 
         <section
           className={`space-y-4 ${
-            awaitingValidation || activeTab === "preview" || activeTab === "diagnostics"
+            awaitingValidation ||
+            activeTab === "preview" ||
+            activeTab === "diagnostics" ||
+            // A pending visual-comparison capture reads the live Sandpack
+            // iframe; a display:none preview would stall or capture nothing.
+            status.previewCaptureRequired
               ? "block"
               : "hidden xl:block"
           }`}

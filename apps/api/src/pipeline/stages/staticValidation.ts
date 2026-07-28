@@ -1,5 +1,6 @@
 import { ErrorCode, type StageExecutor, type StageResult } from "@reactify/shared";
 import { runStaticProjectValidationAsync } from "../../lib/validation/staticProjectValidator.js";
+import { toSafeValidationIssues } from "../../jobs/provider-failure-metadata.js";
 import type { PipelineState } from "../types.js";
 
 export const staticValidationStage: StageExecutor = async (input) => {
@@ -38,6 +39,16 @@ export const staticValidationStage: StageExecutor = async (input) => {
       status: "failed",
       errorCode,
       errorMessage: firstError?.message ?? "Generated project failed static validation.",
+      providerMetadata: {
+        retryable: false,
+        validationIssues: toSafeValidationIssues(
+          result.errors.map((issue) => ({
+            path: issue.filePath ?? "(project)",
+            code: issue.code,
+            message: issue.message,
+          })),
+        ),
+      },
       output,
       durationMs: 0,
     } satisfies StageResult<Partial<PipelineState>>;

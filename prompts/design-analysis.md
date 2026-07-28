@@ -111,3 +111,8 @@ Visual composition rules:
 - Report low confidence rather than omitting an uncertain object.
 - Use kind "chart" for bar charts, line charts, pie charts, graphs, and other
   data visualizations.
+- kind is a strict enum. Use exactly one of: "device", "tool", "decoration",
+  "text", "control", "surface", "illustration", "chart", or "background".
+  Never return "image", "photo", "icon", or any other kind. Represent a
+  photograph or image-like region as "illustration" and describe it precisely
+  in name and silhouette.

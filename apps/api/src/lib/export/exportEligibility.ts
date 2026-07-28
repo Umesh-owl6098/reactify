@@ -1,6 +1,6 @@
 import type { ExportBlockedReason } from "@reactify/generation-contracts";
 import { ErrorCode, type ErrorCode as ErrorCodeType } from "@reactify/shared";
-import { getActiveVersion } from "../edit/versionStore.js";
+import { getValidActiveVersion } from "../edit/versionStore.js";
 import { computeProjectHash } from "../projectHash.js";
 import { validateRequiredProjectFiles } from "../validation/requiredFilesValidator.js";
 import type { GenerationRecord } from "../../pipeline/types.js";
@@ -16,15 +16,15 @@ export type ExportEligibilityResult =
   | { ok: false; reason: ExportBlockedReason; errorCode: ErrorCodeType; message: string };
 
 export function getActiveProjectVersion(record: GenerationRecord): ActiveProjectVersion | null {
-  if (!record.projectHash) {
+  const activeVersion = getValidActiveVersion(record);
+  if (!activeVersion) {
     return null;
   }
 
-  const activeVersion = record.versions.find((version) => version.versionId === record.activeVersionId);
   return {
-    versionId: record.activeVersionId ?? record.projectHash,
-    versionNumber: activeVersion?.versionNumber ?? resolveVersionNumber(record),
-    projectHash: activeVersion?.projectHash ?? record.projectHash,
+    versionId: activeVersion.versionId,
+    versionNumber: activeVersion.versionNumber,
+    projectHash: activeVersion.projectHash,
   };
 }
 
@@ -164,24 +164,6 @@ export function evaluateExportEligibility(
     };
   }
 
-  if (!record.projectHash) {
-    return {
-      ok: false,
-      reason: "active_version_not_found",
-      errorCode: ErrorCode.ACTIVE_VERSION_NOT_FOUND,
-      message: "Active project version was not found.",
-    };
-  }
-
-  if (record.versions.length > 0 && !record.activeVersionId) {
-    return {
-      ok: false,
-      reason: "active_version_not_found",
-      errorCode: ErrorCode.ACTIVE_VERSION_NOT_FOUND,
-      message: "Active project version was not found.",
-    };
-  }
-
   const version = getActiveProjectVersion(record);
   if (!version) {
     return {
@@ -192,8 +174,8 @@ export function evaluateExportEligibility(
     };
   }
 
-  const activeVersionRecord = getActiveVersion(record);
-  const project = activeVersionRecord?.project ?? record.outputs.generatedProject;
+  const activeVersionRecord = getValidActiveVersion(record)!;
+  const project = activeVersionRecord.project;
 
   const schemaValid = record.schemaValidation?.valid === true;
   const staticValid = record.staticValidation?.valid === true;
@@ -210,7 +192,10 @@ export function evaluateExportEligibility(
   }
 
   const computedHash = computeProjectHash(project);
-  if (computedHash !== version.projectHash || computedHash !== record.projectHash) {
+  if (
+    computedHash !== version.projectHash ||
+    record.sandboxValidation?.projectHash !== version.projectHash
+  ) {
     return {
       ok: false,
       reason: "project_integrity_failed",

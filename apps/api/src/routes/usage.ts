@@ -16,6 +16,7 @@ import { requireOwnedGeneration } from "../lib/generationAccess.js";
 import type { UsageService } from "../usage/usage-service.js";
 import { UsageLimitError } from "../usage/usage-service.js";
 import type { Env } from "../env.js";
+import { resolveOperationAIConfig } from "../providers/ai-provider-config.js";
 
 function sendError(
   reply: FastifyReply,
@@ -209,15 +210,15 @@ export async function registerUsageRoutes(
 
     try {
       const provider = env.AI_PROVIDER === "mock" ? "mock" : env.AI_PROVIDER;
-      const model = env.AI_PROVIDER === "openai" ? env.OPENAI_MODEL : env.ANTHROPIC_MODEL;
+      const aiConfig = resolveOperationAIConfig(env, parsed.data.operationType);
       const estimate = usageService.estimateOperation({
         operationType: parsed.data.operationType,
-        maxOutputTokens: env.AI_MAX_TOKENS,
+        maxOutputTokens: aiConfig.maxTokens,
         instruction: parsed.data.instruction,
         selectedFiles: parsed.data.selectedFiles,
         selectedComponentIds: parsed.data.selectedComponentIds,
         provider,
-        model,
+        model: aiConfig.model,
       });
 
       const limits = await usageService.checkLimits({

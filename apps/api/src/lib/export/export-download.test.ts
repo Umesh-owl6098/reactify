@@ -173,6 +173,9 @@ describe("export download persistence", () => {
 
     const filePath = artifactStore.resolveArchivePath(record.id, created.summary.exportId);
     await rm(filePath, { force: true });
+    // Reconstruction must use the persisted immutable version snapshot, not
+    // the mutable/ephemeral project output on the generation record.
+    record.outputs.generatedProject = null;
 
     const download = await service.resolveDownload(record, created.summary.exportId);
     expect(download.ok).toBe(true);
@@ -206,6 +209,12 @@ describe("export download persistence", () => {
     });
     record.projectHash = repaired.result.projectHash;
     record.outputs.generatedProject = repaired.result.project;
+    record.sandboxValidation = {
+      projectHash: repaired.result.projectHash,
+      compilation: { success: true, durationMs: 1, errors: [], warnings: [] },
+      runtime: { success: true, durationMs: 1, errors: [], warnings: [] },
+      validatedAt: new Date().toISOString(),
+    };
 
     const v2Export = await service.createExport(record, { projectName: "Landing Page" });
     expect(v2Export.ok).toBe(true);

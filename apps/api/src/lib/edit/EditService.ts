@@ -15,7 +15,7 @@ import type { GenerationRecord } from "../../pipeline/types.js";
 import { ALLOWED_DEPENDENCIES } from "../allowlist.js";
 import { applyProjectPatch } from "../repair/patchApplicator.js";
 import { validateProjectPatch } from "../repair/patchValidator.js";
-import { resolveActiveModel } from "../../providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../../providers/ai-provider-config.js";
 import { AIProviderError } from "../../providers/provider-errors.js";
 import { normalizeProjectPath } from "../validation/filePathValidator.js";
 import { validateEditEffectiveness, requiresConfirmation, validateSelectedScope } from "./editScopeValidator.js";
@@ -424,6 +424,7 @@ export class EditService {
   > {
     try {
       const prompt = this.deps.loadPrompt("edit-intent-analysis");
+      const aiConfig = resolveOperationAIConfig(this.deps.env, "edit_intent_analysis");
       const invocation = await this.deps.aiProvider.invoke(
         [
           { text: prompt.content },
@@ -436,10 +437,10 @@ export class EditService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: resolveActiveModel(this.deps.env),
-          temperature: this.deps.env.AI_TEMPERATURE,
-          maxTokens: this.deps.env.AI_MAX_TOKENS,
-          timeoutMs: this.deps.env.AI_TIMEOUT_MS,
+          model: aiConfig.model,
+          temperature: aiConfig.temperature,
+          maxTokens: aiConfig.maxTokens,
+          timeoutMs: aiConfig.timeoutMs,
         },
       );
 
@@ -469,6 +470,7 @@ export class EditService {
     try {
       const prompt = this.deps.loadPrompt("project-edit");
       const allowlist = JSON.stringify([...ALLOWED_DEPENDENCIES].sort());
+      const aiConfig = resolveOperationAIConfig(this.deps.env, "project_edit_generation");
       const invocation = await this.deps.aiProvider.invoke(
         [
           { text: prompt.content },
@@ -481,10 +483,10 @@ export class EditService {
         ],
         {
           promptVersion: prompt.meta.promptVersion,
-          model: resolveActiveModel(this.deps.env),
-          temperature: this.deps.env.AI_TEMPERATURE,
-          maxTokens: this.deps.env.AI_MAX_TOKENS,
-          timeoutMs: this.deps.env.AI_TIMEOUT_MS,
+          model: aiConfig.model,
+          temperature: aiConfig.temperature,
+          maxTokens: aiConfig.maxTokens,
+          timeoutMs: aiConfig.timeoutMs,
         },
       );
 

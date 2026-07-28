@@ -9,7 +9,7 @@ import type { Env } from "../../env.js";
 import { createAppStorage } from "../storage/createStorageProvider.js";
 import { PermanentJobError } from "../../jobs/job-errors.js";
 import type { GenerationRecord, ProjectVersionRecord } from "../../pipeline/types.js";
-import { getActiveVersion } from "../edit/versionStore.js";
+import { getValidActiveVersion } from "../edit/versionStore.js";
 import { evaluateExportEligibility, getActiveProjectVersion } from "./exportEligibility.js";
 import { ExportArtifactStore } from "./exportArtifactStore.js";
 import {
@@ -185,8 +185,7 @@ export class ExportService {
       };
     }
 
-    const activeVersionRecord = getActiveVersion(record);
-    const project = activeVersionRecord?.project ?? record.outputs.generatedProject!;
+    const project = getValidActiveVersion(record)!.project;
     const safeProjectName = sanitizeProjectName(request.projectName, project.projectName);
     const fingerprint = computeIdempotencyFingerprint({
       generationId: record.id,
@@ -441,8 +440,7 @@ export class ExportService {
     }
 
     const activeProjectVersion = getActiveProjectVersion(record);
-    const activeVersionRecord = getActiveVersion(record);
-    const project = activeVersionRecord?.project ?? record.outputs.generatedProject;
+    const project = getValidActiveVersion(record)?.project;
     const safeProjectName = project
       ? sanitizeProjectName(request.projectName, project.projectName)
       : sanitizeProjectName(request.projectName, undefined);
@@ -590,8 +588,7 @@ export class ExportService {
         throw new PermanentJobError(eligibility.errorCode, eligibility.message);
       }
 
-      const activeVersionRecord = getActiveVersion(record);
-      const project = activeVersionRecord?.project ?? record.outputs.generatedProject!;
+      const project = getValidActiveVersion(record)!.project;
       const safeProjectName = pending.projectName;
 
       await hooks.onProgress?.(35, "Generating README");
@@ -745,10 +742,8 @@ export class ExportService {
       };
     }
 
-    const version =
-      record.versions.find((entry) => entry.versionId === exportRecord.versionId) ??
-      record.versions.find((entry) => entry.projectHash === exportRecord.projectHash);
-    if (!version) {
+    const version = record.versions.find((entry) => entry.versionId === exportRecord.versionId);
+    if (!version || version.projectHash !== exportRecord.projectHash) {
       return {
         ok: false,
         errorCode: ErrorCode.GENERATION_NOT_FOUND,

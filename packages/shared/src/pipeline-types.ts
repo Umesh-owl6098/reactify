@@ -44,11 +44,19 @@ export interface StageResult<T = unknown> {
   errorCode?: string;
   errorMessage?: string;
   providerMetadata?: {
+    provider?: string;
+    model?: string;
     httpStatus?: number;
     providerErrorType?: string;
     providerErrorCode?: string;
     providerRequestId?: string;
     providerMessage?: string;
+    retryable?: boolean;
+    validationIssues?: Array<{
+      path: string;
+      code: string;
+      message: string;
+    }>;
   };
   durationMs: number;
 }

@@ -5,7 +5,11 @@ import { createPricingRegistry, parsePricingFromEnv, type PricingRegistry } from
 import { estimateTokens, type TokenEstimateInput } from "./token-estimator.js";
 import { createUsageConfig, type UsageConfig } from "./usage-config.js";
 import { getCurrentUsagePeriod } from "./usage-period.js";
-import { UsageRepository, type EffectiveUsagePolicy } from "./usage-repository.js";
+import {
+  createRequestFingerprint,
+  UsageRepository,
+  type EffectiveUsagePolicy,
+} from "./usage-repository.js";
 
 export class UsageLimitError extends Error {
   constructor(
@@ -50,6 +54,7 @@ export interface ReconcileProviderUsageParams {
   providerRequestId?: string;
   usageSource: "provider_reported" | "estimated";
   failureCode?: string;
+  requestFingerprint?: string;
 }
 
 function bigintToNumber(value: bigint | number | null | undefined): number {
@@ -286,6 +291,43 @@ export class UsageService {
     }
   }
 
+  async ensureInvocationReservation(params: {
+    reservationId: string;
+    ownerId: string;
+    generationId: string;
+    jobId: string;
+    operationType: UsageOperationType;
+    attemptNumber: number;
+    provider: string;
+    model: string;
+    maxOutputTokens: number;
+  }): Promise<string> {
+    const current = await this.repository.prisma.usageReservation.findUnique({
+      where: { id: params.reservationId },
+    });
+
+    if (current?.status === "active") {
+      await this.verifyReservation(params);
+      return current.id;
+    }
+
+    const next = await this.reserveForJob({
+      ownerId: params.ownerId,
+      generationId: params.generationId,
+      jobId: params.jobId,
+      operationType: params.operationType,
+      attemptNumber: params.attemptNumber,
+      provider: params.provider,
+      model: params.model,
+      estimate: {
+        operationType: params.operationType,
+        maxOutputTokens: params.maxOutputTokens,
+      },
+    });
+
+    return next.reservationId;
+  }
+
   async verifyReservation(params: {
     reservationId: string;
     ownerId: string;
@@ -334,6 +376,9 @@ export class UsageService {
         providerRequestId: params.providerRequestId,
         usageSource: params.usageSource,
         failureCode: params.failureCode,
+        requestFingerprint:
+          params.requestFingerprint ??
+          createRequestFingerprint(params.jobId, params.attemptNumber),
         billingPeriodStart: periodStart,
         billingPeriodEnd: periodEnd,
       },

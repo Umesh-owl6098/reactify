@@ -10,7 +10,7 @@ import { JobRepository } from "./job-repository.js";
 import { JobRunner } from "./job-runner.js";
 import type { BackgroundJobType } from "./job-types.js";
 import { testEnv } from "../test/helpers.js";
-import { getWorkerId, resetWorkerIdForTests } from "./worker-id.js";
+import { resetWorkerIdForTests } from "./worker-id.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? testEnv.DATABASE_URL;
 

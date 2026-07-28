@@ -42,6 +42,22 @@ export interface OpenAIResponsesClientLike {
       id?: string;
       model: string;
       output_text: string;
+      status?: "completed" | "incomplete" | "failed" | "cancelled" | "queued" | "in_progress";
+      incomplete_details?: {
+        reason?: string;
+      } | null;
+      error?: {
+        code?: string;
+        message?: string;
+      } | null;
+      refusal?: string | null;
+      output?: Array<{
+        type?: string;
+        content?: Array<{
+          type?: string;
+          refusal?: string;
+        }>;
+      }>;
       usage?: {
         input_tokens: number;
         output_tokens: number;
@@ -109,6 +125,115 @@ function buildTextFormat(responseFormat?: AIResponseFormat) {
     format: { type: "json_object" as const },
   };
 }
+
+type OpenAIResponse = Awaited<ReturnType<OpenAIResponsesClientLike["responses"]["create"]>>;
+
+function responseContainsRefusal(response: OpenAIResponse): boolean {
+  if (response.refusal) {
+    return true;
+  }
+
+  return Boolean(
+    response.output?.some((item) =>
+      item.content?.some((content) => content.type === "refusal" || Boolean(content.refusal)),
+    ),
+  );
+}
+
+function assertCompletedResponse(response: OpenAIResponse): void {
+  const safeMetadata = {
+    providerRequestId: response.id,
+    reachedProvider: true,
+  };
+  if (
+    response.status === "incomplete" &&
+    response.incomplete_details?.reason === "max_output_tokens"
+  ) {
+    throw new AIProviderError(
+      "OpenAI response was truncated at the maximum output token limit.",
+      ErrorCode.AI_RESPONSE_TRUNCATED,
+      undefined,
+      safeMetadata,
+    );
+  }
+
+  if (responseContainsRefusal(response)) {
+    throw new AIProviderError(
+      "OpenAI refused to produce the requested response.",
+      ErrorCode.AI_RESPONSE_REFUSED,
+      undefined,
+      safeMetadata,
+    );
+  }
+
+  if (response.status === "failed") {
+    const code = response.error?.code?.toLowerCase();
+    if (code === "context_length_exceeded" || code === "max_context_length_exceeded") {
+      throw new AIProviderError(
+        "OpenAI context limit exceeded.",
+        ErrorCode.AI_CONTEXT_LIMIT_EXCEEDED,
+        undefined,
+        safeMetadata,
+      );
+    }
+    if (code === "invalid_api_key" || code === "authentication_error") {
+      throw new AIProviderError(
+        "OpenAI authentication failed.",
+        ErrorCode.AI_AUTHENTICATION_FAILED,
+        undefined,
+        safeMetadata,
+      );
+    }
+    if (code === "model_not_found") {
+      throw new AIProviderError(
+        "OpenAI model is not available.",
+        ErrorCode.AI_MODEL_NOT_AVAILABLE,
+        undefined,
+        safeMetadata,
+      );
+    }
+    if (code === "rate_limit_exceeded") {
+      throw new AIProviderError(
+        "OpenAI rate limit reached.",
+        ErrorCode.AI_RATE_LIMITED,
+        undefined,
+        safeMetadata,
+      );
+    }
+    if (code === "timeout" || code === "request_timeout" || code === "vector_store_timeout") {
+      throw new AIProviderError(
+        "OpenAI request timed out.",
+        ErrorCode.AI_TIMEOUT,
+        undefined,
+        safeMetadata,
+      );
+    }
+    if (code === "server_error") {
+      throw new AIProviderError(
+        "OpenAI server error.",
+        ErrorCode.AI_PROVIDER_UNAVAILABLE,
+        undefined,
+        safeMetadata,
+      );
+    }
+    throw new AIProviderError(
+      "OpenAI response failed.",
+      ErrorCode.AI_ERROR,
+      undefined,
+      safeMetadata,
+    );
+  }
+
+  if (response.status && response.status !== "completed") {
+    throw new AIProviderError(
+      "OpenAI returned a non-completed response.",
+      ErrorCode.AI_RESPONSE_INVALID,
+      undefined,
+      safeMetadata,
+    );
+  }
+}
+
 function buildResponseInput(inputs: AIInput[]): Array<{
   role: "user";
   content: Array<
@@ -257,12 +382,15 @@ export class OpenAIProvider implements AIProvider {
         { signal: signal as AbortSignal | undefined, timeout: options.timeoutMs },
       );
       const response = await withHardDeadline(request, options.timeoutMs);
+      assertCompletedResponse(response);
 
       const rawText = response.output_text?.trim() ?? "";
       if (!rawText) {
         throw new AIProviderError(
           "OpenAI returned an empty structured response.",
           ErrorCode.AI_RESPONSE_INVALID,
+          undefined,
+          { providerRequestId: response.id, reachedProvider: true },
         );
       }
 
@@ -294,7 +422,7 @@ export class OpenAIProvider implements AIProvider {
       const mapped = error instanceof AIProviderError ? error : mapOpenAIError(error);
       const safeFields = extractSafeOpenAIErrorFields(mapped);
 
-      logError("openai_request_failed", mapped.providerCause ?? mapped, {
+      logError("openai_request_failed", mapped, {
         provider: this.providerName,
         model: options.model,
         failureCode: mapped.errorCode,

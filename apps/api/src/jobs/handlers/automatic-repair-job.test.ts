@@ -18,6 +18,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAutomaticRepairHandler } from "./automatic-repair-job.js";
+import { computeProjectHash } from "../../lib/projectHash.js";
 import type { JobExecutionContext } from "../job-context.js";
 
 function createRunnerServices() {
@@ -132,12 +133,16 @@ describe("createAutomaticRepairHandler", () => {
       };
     });
 
-    const repairedHash = "97a1ab6f294d88fa5297ad36b0221267c46bcd01151d372e485e335ab0e9dac2";
     const record = store.get(generationId)!;
+    const repairedProject = structuredClone(record.outputs.generatedProject!);
+    const appFile = repairedProject.files.find((file) => file.path === "src/App.tsx")!;
+    appFile.content = `${appFile.content}\n// repaired`;
+    const repairedHash = computeProjectHash(repairedProject);
     record.status = "Repairing";
     record.currentRepairAttempt = 1;
     record.awaitingSandboxValidation = true;
     record.projectHash = repairedHash;
+    record.outputs.generatedProject = repairedProject;
     record.repairStatus = "waiting_for_revalidation";
     record.validationReportFingerprint = null;
     record.pipelineState = {
@@ -145,7 +150,7 @@ describe("createAutomaticRepairHandler", () => {
       projectHash: repairedHash,
       repairRequired: true,
       awaitingSandboxValidation: true,
-      generatedProject: record.outputs.generatedProject ?? undefined,
+      generatedProject: repairedProject,
     };
 
     await runner.submitSandboxValidation(

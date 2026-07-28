@@ -1,13 +1,13 @@
 import OpenAI from "openai";
 import { loadLocalEnv } from "../src/lib/load-local-env.js";
 import { validateEnv } from "../src/env.js";
-import { resolveActiveModel } from "../src/providers/ai-provider-config.js";
+import { resolveOperationAIConfig } from "../src/providers/ai-provider-config.js";
 import { GENERATED_PROJECT_V1_JSON_SCHEMA } from "../src/lib/generated-project-json-schema.js";
 import { extractSafeOpenAIErrorFields } from "../src/providers/openai-error-utils.js";
 
 loadLocalEnv();
 const env = validateEnv();
-const model = resolveActiveModel(env);
+const model = resolveOperationAIConfig(env, "react_project_generation").model;
 const client = new OpenAI({ apiKey: env.OPENAI_API_KEY!.trim() });
 
 try {

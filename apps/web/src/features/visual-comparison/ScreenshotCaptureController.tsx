@@ -21,23 +21,27 @@ export function ScreenshotCaptureController({
   onCapture,
   onCaptureError,
 }: ScreenshotCaptureControllerProps) {
-  const inFlightRef = useRef(false);
-  const projectHashRef = useRef<string | null>(null);
+  // The status poll re-renders this component every couple of seconds with new
+  // callback identities. The capture lifecycle must not restart or cancel on
+  // that churn, so callbacks live in a ref and the effect keys off a stable
+  // capture identity instead of the callbacks.
+  const callbacksRef = useRef({ onCapture, onCaptureError });
+  callbacksRef.current = { onCapture, onCaptureError };
+
+  const startedKeyRef = useRef<string | null>(null);
+
+  const captureKey =
+    enabled && status.previewCaptureRequired && comparisonId
+      ? `${comparisonId}:${captureAttempt}:${status.projectHash ?? ""}`
+      : null;
 
   useEffect(() => {
-    if (status.projectHash !== projectHashRef.current) {
-      projectHashRef.current = status.projectHash;
-      inFlightRef.current = false;
-    }
-  }, [status.projectHash]);
-
-  useEffect(() => {
-    if (!enabled || !status.previewCaptureRequired || !comparisonId || inFlightRef.current) {
+    if (!captureKey || startedKeyRef.current === captureKey) {
       return;
     }
+    startedKeyRef.current = captureKey;
 
     let cancelled = false;
-    inFlightRef.current = true;
     const startedAt = Date.now();
 
     async function waitForPreviewRoot(): Promise<HTMLElement | null> {
@@ -51,30 +55,44 @@ export function ScreenshotCaptureController({
       return null;
     }
 
-    async function capture() {
-      const { capturePreviewScreenshot } = await import("./capturePreviewScreenshot");
-      const root = await waitForPreviewRoot();
-      if (cancelled) {
-        return;
-      }
-
-      if (!root) {
-        inFlightRef.current = false;
-        onCaptureError(
-          "Sandpack preview was not ready for screenshot capture. Ensure the preview is visible, then retry.",
-        );
-        return;
-      }
-
+    async function run() {
       try {
-        const screenshotBase64 = await capturePreviewScreenshot(root);
+        const { capturePreviewScreenshot } = await import("./capturePreviewScreenshot");
+        const root = await waitForPreviewRoot();
+        if (cancelled) {
+          return;
+        }
+
+        if (!root) {
+          callbacksRef.current.onCaptureError(
+            "Sandpack preview was not ready for screenshot capture. Ensure the preview is visible, then retry.",
+          );
+          return;
+        }
+
+        // html-to-image can hang on unreachable fonts or images; race it
+        // against the remaining capture budget so the UI always resolves.
+        const remainingMs = Math.max(5_000, CAPTURE_HARD_TIMEOUT_MS - (Date.now() - startedAt));
+        const screenshotBase64 = await Promise.race([
+          capturePreviewScreenshot(root),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Preview screenshot capture timed out. Retry after the Sandpack preview finishes loading.",
+                  ),
+                ),
+              remainingMs,
+            ),
+          ),
+        ]);
         if (!cancelled) {
-          await onCapture(screenshotBase64);
+          await callbacksRef.current.onCapture(screenshotBase64);
         }
       } catch (error) {
         if (!cancelled) {
-          inFlightRef.current = false;
-          onCaptureError(
+          callbacksRef.current.onCaptureError(
             error instanceof Error
               ? error.message
               : "Preview screenshot capture failed. The Sandpack iframe may be inaccessible.",
@@ -83,28 +101,17 @@ export function ScreenshotCaptureController({
       }
     }
 
-    void capture();
+    void run();
 
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled && inFlightRef.current) {
-        cancelled = true;
-        inFlightRef.current = false;
-        onCaptureError("Preview screenshot capture timed out. Retry after the Sandpack preview finishes loading.");
-      }
-    }, CAPTURE_HARD_TIMEOUT_MS);
-
+    // Cleanup runs only when the capture identity changes (a retry or a new
+    // comparison) or on unmount — never on status-poll re-renders.
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
+      if (startedKeyRef.current === captureKey) {
+        startedKeyRef.current = null;
+      }
     };
-  }, [
-    captureAttempt,
-    comparisonId,
-    enabled,
-    onCapture,
-    onCaptureError,
-    status.previewCaptureRequired,
-  ]);
+  }, [captureKey]);
 
   return null;
 }

@@ -9,7 +9,7 @@ import { createPipelineServices } from "../src/pipeline/index.js";
 import { createScriptStores } from "./lib/script-storage.js";
 import { initializePersistence } from "../src/persistence/initialize.js";
 import { getPrismaClient } from "../src/persistence/client.js";
-import { resolveActiveModel, resolveUsageProviderName } from "../src/providers/ai-provider-config.js";
+import { resolveOperationAIConfig, resolveUsageProviderName } from "../src/providers/ai-provider-config.js";
 
 const GENERATION_ID = process.argv[2] ?? "95d76f53-384d-4c49-9400-c1c0a3553ad2";
 
@@ -90,6 +90,7 @@ async function main() {
   });
 
   if (usageService?.isMeteredJobType("design_analysis")) {
+    const aiConfig = resolveOperationAIConfig(env, "design_analysis");
     await usageService.reserveForJob({
       ownerId: generation.ownerId,
       generationId: GENERATION_ID,
@@ -97,10 +98,10 @@ async function main() {
       operationType: "design_analysis",
       attemptNumber: 1,
       provider: resolveUsageProviderName(env),
-      model: resolveActiveModel(env),
+      model: aiConfig.model,
       estimate: {
         operationType: "design_analysis",
-        maxOutputTokens: env.AI_MAX_TOKENS,
+        maxOutputTokens: aiConfig.maxTokens,
       },
     });
   }

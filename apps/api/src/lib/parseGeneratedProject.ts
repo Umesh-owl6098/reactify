@@ -9,7 +9,6 @@ import { extractJsonFromModelText, isLikelyTruncatedJson } from "./extractJson.j
 import {
   formatZodValidationIssues,
   summarizeInvalidShape,
-  truncateForSafeLog,
   type ValidationIssueDetail,
 } from "./formatValidationIssues.js";
 import {
@@ -111,7 +110,7 @@ export function parseGeneratedProjectResponseDetailed(
             message: error instanceof Error ? error.message : "Invalid JSON",
           },
         ],
-        invalidShape: { rawLength: rawText.length, tail: truncateForSafeLog(rawText.slice(-120), 120) },
+        invalidShape: { rawLength: rawText.length },
       });
     }
 
@@ -123,7 +122,7 @@ export function parseGeneratedProjectResponseDetailed(
           message: error instanceof Error ? error.message : "Invalid JSON",
         },
       ],
-      invalidShape: { rawPreview: truncateForSafeLog(rawText, 200) },
+      invalidShape: { rawLength: rawText.length },
     });
   }
 
@@ -284,7 +283,6 @@ export function buildGeneratedProjectValidationLogFields(
     generationId: string;
     jobId?: string;
     model: string;
-    rawText: string;
   },
 ): Record<string, unknown> {
   return {
@@ -295,7 +293,5 @@ export function buildGeneratedProjectValidationLogFields(
     message: result.message,
     validationIssues: result.validationIssues.slice(0, 10),
     normalizationApplied: result.normalizationApplied,
-    invalidShape: result.invalidShape,
-    responsePreview: truncateForSafeLog(context.rawText, 500),
   };
 }

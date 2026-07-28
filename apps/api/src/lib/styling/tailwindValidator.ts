@@ -182,9 +182,48 @@ export function validateTailwindSetup(project: GeneratedProjectV1): ValidationIs
   return issues;
 }
 
+/**
+ * The validation compile (compileTailwindCss) runs with a fixed theme and does
+ * not execute the generated project's own tailwind.config, so utilities coming
+ * from that config's theme extensions (e.g. font-buttonText) are absent from
+ * the compiled CSS even though Sandpack and the exported project generate them.
+ * Treat a missing class as theme-provided when its custom token appears in the
+ * project's tailwind config content.
+ */
+export function classCoveredByProjectTheme(className: string, tailwindConfigContent: string): boolean {
+  const separatorIndex = className.indexOf("-");
+  if (separatorIndex <= 0) {
+    return false;
+  }
+  // Strip opacity modifiers (bg-primary/50) and leading negatives (-mt-2).
+  const token = className.slice(separatorIndex + 1).replace(/\/.*$/, "");
+  if (token.length < 2) {
+    return false;
+  }
+  return tailwindConfigContent.includes(token);
+}
+
+/**
+ * The validation compile rejects `@apply` of classes that only exist in the
+ * generated project's own tailwind.config (which this compile does not load).
+ * Sandpack and the exported project compile with the real config, so such a
+ * failure is a false positive, not a broken project.
+ */
+export function compileFailureIsProjectThemeFalsePositive(
+  message: string,
+  tailwindConfigContent: string,
+): boolean {
+  const match = /The `([^`]+)` class does not exist/.exec(message);
+  if (!match?.[1]) {
+    return false;
+  }
+  return classCoveredByProjectTheme(match[1], tailwindConfigContent);
+}
+
 export function validateTailwindCssCoverage(
   utilityClasses: string[],
   compiledCss: string,
+  tailwindConfigContent = "",
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const required = [...new Set(utilityClasses.filter((className) => !className.includes("[") && !className.includes(":")))];
@@ -193,6 +232,9 @@ export function validateTailwindCssCoverage(
     const escaped = className.replace(/[/[\].]/g, "\\$&");
     const selectorPattern = new RegExp(`\\.${escaped}(?:\\s|,|\\{|:|>)`);
     if (!selectorPattern.test(compiledCss)) {
+      if (classCoveredByProjectTheme(className, tailwindConfigContent)) {
+        continue;
+      }
       issues.push(
         issue(
           "MISSING_TAILWIND_UTILITY_CSS",

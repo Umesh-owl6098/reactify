@@ -151,6 +151,44 @@ describe("PipelineStatus", () => {
     expect(screen.getByText("[JOB_NOT_FOUND] The background design job was not available.")).toBeInTheDocument();
   });
 
+  it("shows bounded actionable metadata for terminal failures", () => {
+    render(
+      <PipelineStatus
+        status={{
+          ...createAnalyzingStatus(),
+          status: "Failed",
+          errors: [
+            {
+              stage: "react_project_generation",
+              code: "GENERATED_PROJECT_SCHEMA_INVALID",
+              message: "Generated project response failed schema validation.",
+              provider: "openai",
+              model: "gpt-test",
+              httpStatus: 422,
+              providerRequestId: "req-safe-123",
+              retryable: false,
+              validationIssues: [
+                {
+                  path: "files.0.path",
+                  code: "invalid_type",
+                  message: "Expected string.",
+                },
+              ],
+            },
+          ],
+        }}
+        isPolling={false}
+        error={null}
+      />,
+    );
+
+    expect(screen.getByText("Failure details")).toBeInTheDocument();
+    expect(screen.getByText("gpt-test")).toBeInTheDocument();
+    expect(screen.getByText("req-safe-123")).toBeInTheDocument();
+    expect(screen.getByText("files.0.path")).toBeInTheDocument();
+    expect(screen.getByText(/Expected string/)).toBeInTheDocument();
+  });
+
   it("uses terminal job failure details when generation errors are unavailable", () => {
     render(
       <PipelineStatus
@@ -220,5 +258,6 @@ describe("PipelineStatus", () => {
     );
 
     expect(screen.getByText("Analyzing screenshot")).toBeInTheDocument();
+    expect(screen.queryByText(/Claude/)).not.toBeInTheDocument();
   });
 });

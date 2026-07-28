@@ -32,10 +32,22 @@ export const GenerationUserStatusSchema = z.enum([
   "Cancelled",
 ]);
 
+export const GenerationValidationIssueSchema = z.object({
+  path: z.string().max(200),
+  code: z.string().max(100),
+  message: z.string().max(500),
+});
+
 export const GenerationErrorSchema = z.object({
   stage: PipelineStageNameSchema,
   code: z.string(),
   message: z.string(),
+  provider: z.string().max(100).optional(),
+  model: z.string().max(200).optional(),
+  httpStatus: z.number().int().min(100).max(599).optional(),
+  providerRequestId: z.string().max(200).optional(),
+  retryable: z.boolean().optional(),
+  validationIssues: z.array(GenerationValidationIssueSchema).max(8).optional(),
 });
 
 export const GenerationOutputsSchema = z.object({
@@ -154,6 +166,8 @@ export const GenerationStatusResponseSchema = z.object({
 });
 
 export type GenerationUserStatus = z.infer<typeof GenerationUserStatusSchema>;
+export type GenerationValidationIssue = z.infer<typeof GenerationValidationIssueSchema>;
+export type GenerationError = z.infer<typeof GenerationErrorSchema>;
 export type CreateGenerationRequest = z.infer<typeof CreateGenerationRequestSchema>;
 export type CreateGenerationResponse = z.infer<typeof CreateGenerationResponseSchema>;
 export type ConfirmPlanRequest = z.infer<typeof ConfirmPlanRequestSchema>;

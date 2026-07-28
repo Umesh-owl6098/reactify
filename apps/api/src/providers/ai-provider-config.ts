@@ -1,5 +1,66 @@
-import { ErrorCode } from "@reactify/shared";
+import { ErrorCode, type AIStageConfig, type UsageOperationType } from "@reactify/shared";
 import type { Env } from "../env.js";
+
+export type AIConfigOperation = UsageOperationType;
+
+function requireOpenAIModel(value: string | undefined, variableName: string): string {
+  if (!value?.trim()) {
+    throw new Error(`${variableName} is required when AI_PROVIDER=openai`);
+  }
+  return value.trim();
+}
+
+function resolveOpenAIStageConfig(
+  env: Env,
+  operation: AIConfigOperation,
+): Pick<AIStageConfig, "model" | "maxTokens"> {
+  switch (operation) {
+    case "design_analysis":
+      return {
+        model: requireOpenAIModel(env.OPENAI_DESIGN_ANALYSIS_MODEL, "OPENAI_DESIGN_ANALYSIS_MODEL"),
+        maxTokens: env.OPENAI_DESIGN_ANALYSIS_MAX_OUTPUT_TOKENS,
+      };
+    case "generation_plan_creation":
+      return {
+        model: requireOpenAIModel(env.OPENAI_PLAN_MODEL, "OPENAI_PLAN_MODEL"),
+        maxTokens: env.OPENAI_PLAN_MAX_OUTPUT_TOKENS,
+      };
+    case "react_project_generation":
+      return {
+        model: requireOpenAIModel(env.OPENAI_CODE_GENERATION_MODEL, "OPENAI_CODE_GENERATION_MODEL"),
+        maxTokens: env.OPENAI_CODE_GENERATION_MAX_OUTPUT_TOKENS,
+      };
+    case "automatic_repair":
+    case "edit_intent_analysis":
+    case "project_edit_generation":
+    case "visual_correction":
+      return {
+        model: requireOpenAIModel(env.OPENAI_EDIT_MODEL, "OPENAI_EDIT_MODEL"),
+        maxTokens: env.OPENAI_EDIT_MAX_OUTPUT_TOKENS,
+      };
+  }
+}
+
+export function resolveOperationAIConfig(env: Env, operation: AIConfigOperation): AIStageConfig {
+  const stage =
+    env.AI_PROVIDER === "openai"
+      ? resolveOpenAIStageConfig(env, operation)
+      : { model: env.ANTHROPIC_MODEL, maxTokens: env.AI_MAX_TOKENS };
+  return {
+    ...stage,
+    temperature: env.AI_TEMPERATURE,
+    timeoutMs: env.AI_TIMEOUT_MS,
+  };
+}
+
+export function resolveConfiguredAIModels(env: Env): Record<"design" | "plan" | "code" | "edit", string> {
+  return {
+    design: resolveOperationAIConfig(env, "design_analysis").model,
+    plan: resolveOperationAIConfig(env, "generation_plan_creation").model,
+    code: resolveOperationAIConfig(env, "react_project_generation").model,
+    edit: resolveOperationAIConfig(env, "project_edit_generation").model,
+  };
+}
 
 export function resolveUsageProviderName(env: Env): string {
   if (env.AI_PROVIDER === "mock") {
@@ -7,14 +68,6 @@ export function resolveUsageProviderName(env: Env): string {
   }
 
   return env.AI_PROVIDER;
-}
-
-export function resolveActiveModel(env: Env): string {
-  if (env.AI_PROVIDER === "openai") {
-    return env.OPENAI_MODEL;
-  }
-
-  return env.ANTHROPIC_MODEL;
 }
 
 export function isAIProviderConfigured(env: Env): boolean {

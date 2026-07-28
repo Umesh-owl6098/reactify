@@ -12,6 +12,7 @@ describe("loadLocalEnv", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
     delete process.env.LOAD_LOCAL_ENV_TEST;
+    delete process.env.REACTIFY_ENV_FILE_OVERRIDE;
   });
 
   it("overrides inherited shell exports when override is enabled", () => {
@@ -32,5 +33,16 @@ describe("loadLocalEnv", () => {
 
     expect(process.env.LOAD_LOCAL_ENV_TEST).toBe("from-shell");
     expect(existsSync(join(tempDir, ".env"))).toBe(false);
+  });
+
+  it("preserves controlled shell configuration when file override is disabled", () => {
+    tempDir = mkdtempSync(join(tmpdir(), "reactify-env-"));
+    process.env.LOAD_LOCAL_ENV_TEST = "from-shell";
+    process.env.REACTIFY_ENV_FILE_OVERRIDE = "false";
+    writeFileSync(join(tempDir, ".env"), "LOAD_LOCAL_ENV_TEST=from-file\n", "utf8");
+
+    loadLocalEnv({ apiRootDir: tempDir });
+
+    expect(process.env.LOAD_LOCAL_ENV_TEST).toBe("from-shell");
   });
 });

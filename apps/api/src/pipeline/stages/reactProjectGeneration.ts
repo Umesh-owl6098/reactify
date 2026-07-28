@@ -13,8 +13,10 @@ import {
   parseGeneratedProjectResponseDetailed,
 } from "../../lib/parseGeneratedProject.js";
 import { truncateForSafeLog } from "../../lib/formatValidationIssues.js";
-import { AIProviderError } from "../../providers/provider-errors.js";
+import { toSafeValidationIssues } from "../../jobs/provider-failure-metadata.js";
+import { isResponseFormatUnsupportedOpenAIError } from "../../providers/openai-error-utils.js";
 import type { PipelineState } from "../types.js";
+import { classifyAIStageError } from "./ai-stage-error-classification.js";
 
 const MAX_SCHEMA_REPAIR_ATTEMPTS = 1;
 
@@ -66,6 +68,13 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
     let providerRequestId: string | undefined;
     let responseFormatUsed: string = structuredFormat.type;
 
+    context.logger.info("provider_invocation_started", {
+      generationId: context.generationId,
+      stage: "react_project_generation",
+      provider: context.aiProvider.providerName,
+      model: context.aiConfig.model,
+    });
+
     let initialInvocation;
     try {
       initialInvocation = await context.aiProvider.invoke(baseInputs, {
@@ -73,13 +82,10 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
         responseFormat: structuredFormat,
       });
     } catch (error) {
-      if (
-        error instanceof AIProviderError &&
-        error.errorCode === ErrorCode.AI_REQUEST_INVALID
-      ) {
+      if (isResponseFormatUnsupportedOpenAIError(error)) {
         context.logger.warn("react_project_generation_schema_format_fallback", {
           generationId: context.generationId,
-          message: error.message,
+          failureCode: ErrorCode.AI_RESPONSE_FORMAT_UNSUPPORTED,
         });
         responseFormatUsed = GENERATED_PROJECT_V1_JSON_OBJECT_FORMAT.type;
         initialInvocation = await context.aiProvider.invoke(baseInputs, {
@@ -106,7 +112,6 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
         buildGeneratedProjectValidationLogFields(parsed, {
           generationId: context.generationId,
           model,
-          rawText: initialInvocation.rawText,
         }),
       );
     }
@@ -168,7 +173,6 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
           buildGeneratedProjectValidationLogFields(parsed, {
             generationId: context.generationId,
             model,
-            rawText: repairInvocation.rawText,
           }),
         );
       } else {
@@ -185,6 +189,13 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
         status: "failed",
         errorCode: parsed.errorCode,
         errorMessage: parsed.message,
+        providerMetadata: {
+          provider,
+          model,
+          providerRequestId,
+          retryable: isRepairableGeneratedProjectFailure(parsed),
+          validationIssues: toSafeValidationIssues(parsed.validationIssues),
+        },
         durationMs: totalLatencyMs,
       };
     }
@@ -314,25 +325,14 @@ export const reactProjectGenerationStage: StageExecutor = async (input, context)
       durationMs: totalLatencyMs,
     } satisfies StageResult<Partial<PipelineState>>;
   } catch (error) {
-    if (error instanceof AIProviderError) {
-      return {
-        status: "failed",
-        errorCode: error.errorCode,
-        errorMessage: error.message,
-        durationMs: 0,
-      };
-    }
-
-    context.logger.error("react_project_generation_failed", {
+    const classified = classifyAIStageError(error, {
       generationId: context.generationId,
-      message: error instanceof Error ? error.message : "Unknown provider error",
+      stage: "react_project_generation",
+      provider: context.aiProvider.providerName,
+      model: context.aiConfig.model,
+      unexpectedMessage: "React project generation provider failed unexpectedly.",
     });
-
-    return {
-      status: "failed",
-      errorCode: ErrorCode.AI_ERROR,
-      errorMessage: "React project generation provider failed unexpectedly.",
-      durationMs: 0,
-    };
+    context.logger.error("provider_invocation_failed", classified.logFields);
+    return classified.result;
   }
 };

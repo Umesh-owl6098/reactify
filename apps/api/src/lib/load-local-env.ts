@@ -60,7 +60,9 @@ function applyEnvFile(path: string, override: boolean): string[] {
  */
 export function loadLocalEnv(options?: { override?: boolean; apiRootDir?: string }): void {
   const root = options?.apiRootDir ?? apiRoot;
-  const override = options?.override ?? true;
+  const override =
+    options?.override ??
+    process.env.REACTIFY_ENV_FILE_OVERRIDE?.trim().toLowerCase() !== "false";
   const overridden = applyEnvFile(resolve(root, ".env"), override);
 
   if (overridden.length > 0) {

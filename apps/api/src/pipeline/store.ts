@@ -358,11 +358,11 @@ export class GenerationStore {
 
     record.projectHash = state.projectHash ?? record.projectHash;
 
-    const initialVersion = ensureInitialVersion(record);
+    const initialVersion = ensureInitialVersion(record, { activate: false });
     if (initialVersion) {
       logEvent("initial_project_version_created", {
         generationId: record.id,
-        activeVersionId: record.activeVersionId,
+        versionId: initialVersion.versionId,
         projectHash: record.projectHash,
         versionNumber: initialVersion.versionNumber,
       });
@@ -639,7 +639,6 @@ export class GenerationStore {
       });
     }
 
-    void this.persist(record);
     logEvent("validation_accepted", {
       generationId: record.id,
       projectHash: input.report.projectHash,

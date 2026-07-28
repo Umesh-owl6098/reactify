@@ -8,6 +8,7 @@ interface EditProgressProps {
 const LABELS: Record<EditPhase, string> = {
   idle: "Ready to edit.",
   submitting: "Analyzing instruction and generating patch…",
+  processing: "Edit accepted. Analyzing and applying your change…",
   clarifying: "Waiting for clarification.",
   confirming: "Review the proposed high-risk edit before applying.",
   awaiting_validation: "Edit applied. Waiting for Sandpack revalidation…",

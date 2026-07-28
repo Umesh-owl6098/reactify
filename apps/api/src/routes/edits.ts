@@ -7,6 +7,8 @@ import {
   EditHistoryListResponseSchema,
   EditOperationSummarySchema,
   NaturalLanguageEditRequestSchema,
+  ProjectVersionListResponseSchema,
+  RollbackVersionResponseSchema,
 } from "@reactify/generation-contracts";
 import { ErrorCode, JobAcceptedResponseSchema, type APIErrorBody } from "@reactify/shared";
 import type { EditService } from "../lib/edit/EditService.js";
@@ -253,23 +255,25 @@ export async function registerVersionRoutes(
       return;
     }
 
-    return reply.send({
-      generationId: id,
-      activeVersionId: record.activeVersionId,
-      versions: record.versions.map((version) => ({
-        versionId: version.versionId,
-        versionNumber: version.versionNumber,
-        source: version.source,
-        label: version.label,
-        parentVersionId: version.parentVersionId,
-        projectHash: version.projectHash,
-        changedFiles: version.changedFiles,
-        editId: version.editId,
-        instruction: version.instruction,
-        createdAt: version.createdAt,
-        isActive: version.versionId === record.activeVersionId,
-      })),
-    });
+    return reply.send(
+      ProjectVersionListResponseSchema.parse({
+        generationId: id,
+        activeVersionId: record.activeVersionId,
+        versions: record.versions.map((version) => ({
+          versionId: version.versionId,
+          versionNumber: version.versionNumber,
+          source: version.source,
+          label: version.label,
+          parentVersionId: version.parentVersionId ?? null,
+          projectHash: version.projectHash,
+          changedFiles: version.changedFiles,
+          editId: version.editId ?? undefined,
+          instruction: version.instruction ?? undefined,
+          createdAt: version.createdAt,
+          isActive: version.versionId === record.activeVersionId,
+        })),
+      }),
+    );
   });
 
   app.post("/api/v1/generations/:id/versions/:versionId/rollback", async (request, reply) => {
@@ -289,12 +293,14 @@ export async function registerVersionRoutes(
       return sendError(reply, request, result.statusCode, result.errorCode, result.message);
     }
 
-    void store.persist(record);
-    return reply.send({
-      versionId: result.versionId,
-      versionNumber: result.versionNumber,
-      projectHash: result.projectHash,
-      source: "rollback",
-    });
+    await store.persist(record);
+    return reply.send(
+      RollbackVersionResponseSchema.parse({
+        versionId: result.versionId,
+        versionNumber: result.versionNumber,
+        projectHash: result.projectHash,
+        source: "rollback",
+      }),
+    );
   });
 }

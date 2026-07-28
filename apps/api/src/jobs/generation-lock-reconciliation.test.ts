@@ -1,23 +1,32 @@
 import { describe, expect, it } from "vitest";
+import { generatedProjectFixture } from "@reactify/test-utils";
 import type { GenerationRecord } from "../pipeline/types.js";
 import { reconcileGenerationLocksSync } from "./generation-lock-reconciliation.js";
+import { computeProjectHash } from "../lib/projectHash.js";
+import { ensureInitialVersion } from "../lib/edit/versionStore.js";
 
 function createRecord(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
-  return {
+  const projectHash = computeProjectHash(generatedProjectFixture);
+  const record = {
     id: "gen-1",
     imageId: "img-1",
     projectId: "proj-1",
     status: "Ready",
     activeStage: null,
     stages: [],
-    outputs: { designAnalysis: null, generationPlan: null, generatedProject: null },
+    outputs: { designAnalysis: null, generationPlan: null, generatedProject: generatedProjectFixture },
     analysis: null,
     plan: null,
     project: null,
-    schemaValidation: null,
-    staticValidation: null,
-    sandboxValidation: null,
-    projectHash: "hash",
+    schemaValidation: { valid: true, errors: [] },
+    staticValidation: { valid: true, errors: [], warnings: [] },
+    sandboxValidation: {
+      projectHash,
+      compilation: { success: true, durationMs: 1, errors: [], warnings: [] },
+      runtime: { success: true, durationMs: 1, errors: [], warnings: [] },
+      validatedAt: new Date().toISOString(),
+    },
+    projectHash,
     validationReportFingerprint: null,
     repairRequired: false,
     repairStatus: "not_required",
@@ -38,7 +47,7 @@ function createRecord(overrides: Partial<GenerationRecord> = {}): GenerationReco
     exports: [],
     exportInProgress: false,
     versions: [],
-    activeVersionId: "hash",
+    activeVersionId: null,
     edits: [],
     editInProgress: false,
     activeEditId: null,
@@ -55,6 +64,8 @@ function createRecord(overrides: Partial<GenerationRecord> = {}): GenerationReco
     updatedAt: new Date().toISOString(),
     ...overrides,
   } as GenerationRecord;
+  ensureInitialVersion(record);
+  return record;
 }
 
 describe("reconcileGenerationLocksSync", () => {
@@ -88,7 +99,6 @@ describe("reconcileGenerationLocksSync", () => {
       status: "Generating",
       editInProgress: true,
       activeEditId: "edit-1",
-      outputs: { designAnalysis: null, generationPlan: null, generatedProject: { schemaVersion: "1" } as never },
       edits: [
         {
           editId: "edit-1",
@@ -114,7 +124,6 @@ describe("reconcileGenerationLocksSync", () => {
       status: "Generating",
       editInProgress: false,
       activeEditId: "edit-1",
-      outputs: { designAnalysis: null, generationPlan: null, generatedProject: { schemaVersion: "1" } as never },
       edits: [
         {
           editId: "edit-1",

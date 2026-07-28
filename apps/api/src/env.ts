@@ -2,6 +2,19 @@ import { z } from "zod";
 import { createUsageConfig } from "./usage/usage-config.js";
 import { createPricingRegistry, parsePricingFromEnv, validatePricingForEnabledProvider } from "./usage/pricing-registry.js";
 
+const envBoolean = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return value;
+}, z.boolean());
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -9,13 +22,16 @@ const EnvSchema = z.object({
   IMAGE_STORAGE_DIR: z.string().default("storage/images"),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_ROOT: z.string().default("storage"),
+  // Explicit operator acknowledgement that STORAGE_LOCAL_ROOT is on a mounted
+  // persistent volume; without it, production refuses the local driver.
+  STORAGE_ALLOW_LOCAL_IN_PRODUCTION: envBoolean.default(false),
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default("auto"),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   HOST: z.string().default("127.0.0.1"),
-  TRUST_PROXY: z.coerce.boolean().default(false),
+  TRUST_PROXY: envBoolean.default(false),
   SESSION_COOKIE_SAME_SITE: z.enum(["lax", "none", "strict"]).default("lax"),
   ALLOWED_ORIGINS: z.string().default("http://localhost:5173"),
   AUTH_ALLOWED_ORIGINS: z.string().default("http://localhost:5174"),
@@ -32,15 +48,22 @@ const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-3-5-sonnet-20241022"),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-4o"),
+  OPENAI_DESIGN_ANALYSIS_MODEL: z.string().min(1).optional(),
+  OPENAI_PLAN_MODEL: z.string().min(1).optional(),
+  OPENAI_CODE_GENERATION_MODEL: z.string().min(1).optional(),
+  OPENAI_EDIT_MODEL: z.string().min(1).optional(),
+  OPENAI_DESIGN_ANALYSIS_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(8192),
+  OPENAI_PLAN_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(8192),
+  OPENAI_CODE_GENERATION_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(32768),
+  OPENAI_EDIT_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(16384),
   OPENAI_MAX_RETRIES: z.coerce.number().int().min(0).default(0),
   AI_TIMEOUT_MS: z.coerce.number().default(180_000),
   AI_MAX_TOKENS: z.coerce.number().default(8192),
   AI_TEMPERATURE: z.coerce.number().default(0.2),
-  ENABLE_REPAIR: z.coerce.boolean().default(true),
-  ENABLE_INSPECTOR: z.coerce.boolean().default(true),
-  ENABLE_ACCESSIBILITY: z.coerce.boolean().default(true),
-  ENABLE_GENERATION_PLAN_EDITING: z.coerce.boolean().default(true),
+  ENABLE_REPAIR: envBoolean.default(true),
+  ENABLE_INSPECTOR: envBoolean.default(true),
+  ENABLE_ACCESSIBILITY: envBoolean.default(true),
+  ENABLE_GENERATION_PLAN_EDITING: envBoolean.default(true),
   MAX_REPAIR_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   MAX_PATCH_FILE_BYTES: z.coerce.number().int().positive().default(512 * 1024),
   MAX_PATCH_TOTAL_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
@@ -79,7 +102,7 @@ const EnvSchema = z.object({
   JOB_RETRY_MAX_DELAY_MS: z.coerce.number().int().nonnegative().default(60_000),
   JOB_BATCH_SIZE: z.coerce.number().int().positive().max(20).default(5),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().max(10).default(2),
-  JOB_INLINE_EXECUTION: z.coerce.boolean().default(false),
+  JOB_INLINE_EXECUTION: envBoolean.default(false),
   JOB_STALE_RECOVERY_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   JOB_STALE_GENERATION_THRESHOLD_MS: z.coerce.number().int().positive().default(120_000),
   JOB_MISSING_GRACE_MS: z.coerce.number().int().nonnegative().default(60_000),
@@ -128,6 +151,21 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
     process.exit(1);
   }
 
+  if (parsed.AI_PROVIDER === "openai") {
+    const missingModels = [
+      ["OPENAI_DESIGN_ANALYSIS_MODEL", parsed.OPENAI_DESIGN_ANALYSIS_MODEL],
+      ["OPENAI_PLAN_MODEL", parsed.OPENAI_PLAN_MODEL],
+      ["OPENAI_CODE_GENERATION_MODEL", parsed.OPENAI_CODE_GENERATION_MODEL],
+      ["OPENAI_EDIT_MODEL", parsed.OPENAI_EDIT_MODEL],
+    ].filter(([, value]) => !value?.trim());
+    if (missingModels.length > 0) {
+      console.error(
+        `Missing required OpenAI stage model variables: ${missingModels.map(([name]) => name).join(", ")}`,
+      );
+      process.exit(1);
+    }
+  }
+
   if (!parsed.DATABASE_URL) {
     console.error("DATABASE_URL is required. Set it in apps/api/.env or the environment.");
     process.exit(1);
@@ -164,6 +202,14 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): Env {
   }
 
   if (parsed.NODE_ENV === "production") {
+    if (parsed.STORAGE_DRIVER === "local" && !parsed.STORAGE_ALLOW_LOCAL_IN_PRODUCTION) {
+      console.error(
+        "STORAGE_DRIVER=local is not durable in production: uploaded screenshots, export ZIPs, and comparison artifacts are lost on redeploy. " +
+          "Set STORAGE_DRIVER=s3 with S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY, " +
+          "or set STORAGE_ALLOW_LOCAL_IN_PRODUCTION=true only if STORAGE_LOCAL_ROOT is on a mounted persistent volume.",
+      );
+      process.exit(1);
+    }
     if (parsed.ALLOWED_ORIGINS.includes("*") || parsed.AUTH_ALLOWED_ORIGINS.includes("*")) {
       console.error("Wildcard origins are not allowed in production.");
       process.exit(1);

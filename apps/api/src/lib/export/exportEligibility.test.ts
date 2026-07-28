@@ -7,7 +7,7 @@ import { ensureInitialVersion } from "../edit/versionStore.js";
 
 function createReadyRecord(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
   const projectHash = computeProjectHash(generatedProjectFixture);
-  return {
+  const record: GenerationRecord = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     imageId: "660e8400-e29b-41d4-a716-446655440000",
     projectId: "770e8400-e29b-41d4-a716-446655440000",
@@ -68,6 +68,10 @@ function createReadyRecord(overrides: Partial<GenerationRecord> = {}): Generatio
     updatedAt: new Date().toISOString(),
     ...overrides,
   };
+  if (record.outputs.generatedProject && record.projectHash) {
+    ensureInitialVersion(record);
+  }
+  return record;
 }
 
 describe("exportEligibility", () => {
@@ -147,7 +151,7 @@ describe("exportEligibility", () => {
     const result = evaluateExportEligibility(createReadyRecord({ projectHash: "deadbeef".repeat(8) }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toBe("project_integrity_failed");
+      expect(result.reason).toBe("active_version_not_found");
     }
   });
 

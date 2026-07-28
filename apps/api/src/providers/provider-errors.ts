@@ -10,7 +10,11 @@ export type AIProviderErrorCode =
   | typeof ErrorCode.AI_MODEL_NOT_AVAILABLE
   | typeof ErrorCode.AI_RATE_LIMITED
   | typeof ErrorCode.AI_REQUEST_INVALID
+  | typeof ErrorCode.AI_CONTEXT_LIMIT_EXCEEDED
+  | typeof ErrorCode.AI_RESPONSE_FORMAT_UNSUPPORTED
   | typeof ErrorCode.AI_RESPONSE_INVALID
+  | typeof ErrorCode.AI_RESPONSE_REFUSED
+  | typeof ErrorCode.AI_RESPONSE_TRUNCATED
   | typeof ErrorCode.AI_PROVIDER_UNAVAILABLE;
 
 export function isAIProviderError(error: unknown): error is AIProviderError {
@@ -23,11 +27,20 @@ export function isAIProviderError(error: unknown): error is AIProviderError {
   );
 }
 
+export interface AIProviderSafeMetadata {
+  httpStatus?: number;
+  errorType?: string;
+  providerErrorCode?: string;
+  providerRequestId?: string;
+  reachedProvider?: boolean;
+}
+
 export class AIProviderError extends Error {
   constructor(
     message: string,
     readonly errorCode: AIProviderErrorCode,
     readonly providerCause?: unknown,
+    readonly safeMetadata?: AIProviderSafeMetadata,
   ) {
     super(message);
     this.name = "AIProviderError";

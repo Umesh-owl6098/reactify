@@ -30,6 +30,8 @@ import {
   VisualComparisonResultSchema,
   VisualCorrectionRequestSchema,
   PreviewScreenshotSubmissionSchema,
+  ProjectVersionListResponseSchema,
+  RollbackVersionResponseSchema,
   type GenerationPlanV1,
   type GenerationStatusResponse,
   type DeleteGenerationResponse,
@@ -192,9 +194,12 @@ export async function submitSandboxValidation(
       generationId,
       ok: false,
       status: response.status,
-      body: errorText.slice(0, 500),
     });
-    throw new Error("Failed to submit sandbox validation report.");
+    throw parseGenerationApiError(
+      errorText,
+      "Failed to submit sandbox validation report.",
+      response.status,
+    );
   }
 
   const body = SandboxValidationResponseSchema.parse(await response.json());
@@ -414,7 +419,11 @@ export async function createProjectExport(generationId: string, request: ExportR
   });
 
   if (!response.ok) {
-    throw parseGenerationApiError(await response.text(), "Failed to create project export.");
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to create project export.",
+      response.status,
+    );
   }
 
   const body: unknown = await response.json();
@@ -504,10 +513,20 @@ export async function createProjectEdit(generationId: string, request: NaturalLa
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new Error(body?.error?.message ?? "Failed to create project edit.");
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to create project edit.",
+      response.status,
+    );
   }
-  return EditOperationSummarySchema.parse(await response.json());
+  // Worker mode replies 202 with { edit, job }; inline mode replies with the
+  // bare edit summary. Accept both so async acceptance is not treated as an error.
+  const body: unknown = await response.json();
+  const summary =
+    body !== null && typeof body === "object" && "edit" in body
+      ? (body as { edit: unknown }).edit
+      : body;
+  return EditOperationSummarySchema.parse(summary);
 }
 
 export async function fetchEditHistory(generationId: string) {
@@ -538,7 +557,11 @@ export async function submitEditClarification(
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error("Failed to submit edit clarification.");
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to submit edit clarification.",
+      response.status,
+    );
   }
   return EditOperationSummarySchema.parse(await response.json());
 }
@@ -555,9 +578,48 @@ export async function confirmProjectEdit(
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error("Failed to confirm project edit.");
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to confirm project edit.",
+      response.status,
+    );
   }
   return EditOperationSummarySchema.parse(await response.json());
+}
+
+export async function fetchVersionHistory(generationId: string) {
+  const response = await apiFetch(`/api/v1/generations/${generationId}/versions`);
+  if (!response.ok) {
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to fetch version history.",
+      response.status,
+    );
+  }
+  return ProjectVersionListResponseSchema.parse(await response.json());
+}
+
+export async function rollbackToVersion(
+  generationId: string,
+  versionId: string,
+  expectedProjectHash: string,
+) {
+  const response = await apiFetch(
+    `/api/v1/generations/${generationId}/versions/${versionId}/rollback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedProjectHash }),
+    },
+  );
+  if (!response.ok) {
+    throw parseGenerationApiError(
+      await response.text(),
+      "Failed to roll back to the selected version.",
+      response.status,
+    );
+  }
+  return RollbackVersionResponseSchema.parse(await response.json());
 }
 
 export async function createVisualComparison(generationId: string, request: VisualComparisonRequest) {

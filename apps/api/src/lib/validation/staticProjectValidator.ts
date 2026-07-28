@@ -2,6 +2,7 @@ import type { GeneratedProjectV1, GenerationPlanV1, StaticValidationResult } fro
 import { compileTailwindCss } from "../styling/compileTailwindCss.js";
 import { analyzeTailwindUsage } from "../styling/tailwindClassScanner.js";
 import {
+  compileFailureIsProjectThemeFalsePositive,
   detectVerticalStackLayoutMismatch,
   validateTailwindCssCoverage,
   validateTailwindSetup,
@@ -29,15 +30,25 @@ export async function runStaticProjectValidationAsync(
   const analysis = analyzeTailwindUsage(project);
   if (analysis.usesTailwind && errors.length === 0) {
     const compiled = await compileTailwindCss(project);
+    const tailwindConfigContent = project.files
+      .filter((file) => /(?:^|\/)tailwind\.config\.(?:js|ts|cjs|mjs)$/.test(file.path))
+      .map((file) => file.content)
+      .join("\n");
     if (!compiled.ok) {
-      errors.push({
-        code: "TAILWIND_COMPILE_FAILED",
-        message: compiled.message,
-        severity: "error",
-      });
+      if (!compileFailureIsProjectThemeFalsePositive(compiled.message, tailwindConfigContent)) {
+        errors.push({
+          code: "TAILWIND_COMPILE_FAILED",
+          message: compiled.message,
+          severity: "error",
+        });
+      }
     } else {
       errors.push(
-        ...validateTailwindCssCoverage(analysis.utilityClasses.slice(0, 40), compiled.css),
+        ...validateTailwindCssCoverage(
+          analysis.utilityClasses.slice(0, 40),
+          compiled.css,
+          tailwindConfigContent,
+        ),
         ...detectVerticalStackLayoutMismatch({
           utilityClasses: analysis.utilityClasses,
           compiledCss: compiled.css,

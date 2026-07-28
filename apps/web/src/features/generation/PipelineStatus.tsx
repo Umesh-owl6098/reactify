@@ -139,9 +139,12 @@ export function PipelineStatus({
           </div>
 
           {activeStatus === "Failed" ? (
-            <StatusBanner tone="error" title="Generation failed">
-              {getFailedGenerationMessage(status, job)}
-            </StatusBanner>
+            <div className="space-y-3">
+              <StatusBanner tone="error" title="Generation failed">
+                {getFailedGenerationMessage(status, job)}
+              </StatusBanner>
+              {status.errors.at(-1) ? <TerminalErrorDetails error={status.errors.at(-1)!} /> : null}
+            </div>
           ) : null}
 
           {status.retryAllowed ? (
@@ -165,7 +168,7 @@ export function PipelineStatus({
 
           {activeStatus === "Generating" && isPolling ? (
             <StatusBanner tone="info" title="Generating React project">
-              Claude is generating the React + Tailwind source files from the confirmed plan.
+              The configured AI provider is generating the React + Tailwind source files from the confirmed plan.
             </StatusBanner>
           ) : null}
 
@@ -199,9 +202,14 @@ export function PipelineStatus({
             </StatusBanner>
           ) : null}
 
+          {(activeStatus === "RepairRequired" || activeStatus === "RepairFailed") &&
+          status.errors.at(-1) ? (
+            <TerminalErrorDetails error={status.errors.at(-1)!} />
+          ) : null}
+
           {isAnalyzing ? (
             <StatusBanner tone="info" title="Analyzing screenshot">
-              Claude is extracting layout, tokens, and component hierarchy from your upload.
+              The configured AI provider is extracting layout, tokens, and component hierarchy from your upload.
             </StatusBanner>
           ) : null}
 
@@ -279,6 +287,54 @@ function AnalysisFailureBanner({
     <StatusBanner tone="error" title={title}>
       {error.message}
     </StatusBanner>
+  );
+}
+
+function TerminalErrorDetails({
+  error,
+}: {
+  error: GenerationStatusResponse["errors"][number];
+}) {
+  const metadata = [
+    error.provider ? ["Provider", error.provider] : null,
+    error.model ? ["Model", error.model] : null,
+    error.httpStatus ? ["HTTP status", String(error.httpStatus)] : null,
+    error.providerRequestId ? ["Provider request ID", error.providerRequestId] : null,
+    error.retryable !== undefined ? ["Retryable", error.retryable ? "Yes" : "No"] : null,
+  ].filter((entry): entry is string[] => entry !== null);
+
+  if (metadata.length === 0 && !error.validationIssues?.length) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-xl border border-red-400/20 bg-slate-950/60 px-4 py-3 text-sm text-slate-200">
+      <h3 className="font-semibold text-red-100">Failure details</h3>
+      {metadata.length > 0 ? (
+        <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+          {metadata.map(([label, value]) => (
+            <div key={label}>
+              <dt className="inline text-slate-400">{label}: </dt>
+              <dd className="inline break-all">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {error.validationIssues?.length ? (
+        <div className="mt-3">
+          <p className="font-medium text-slate-300">Validation issues</p>
+          <ul className="mt-1 space-y-1">
+            {error.validationIssues.map((issue, index) => (
+              <li key={`${issue.path}-${issue.code}-${index}`}>
+                <span className="font-mono text-xs text-slate-400">{issue.path}</span>
+                {" — "}
+                {issue.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

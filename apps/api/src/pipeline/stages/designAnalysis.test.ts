@@ -88,6 +88,11 @@ describe("designAnalysisStage", () => {
         temperature: testEnv.AI_TEMPERATURE,
       },
     });
+    expect(provider.invocations[0]?.options.responseFormat).toMatchObject({
+      type: "json_schema",
+      name: "design_analysis_v1",
+      strict: true,
+    });
   });
 
   it("returns AI_RESPONSE_VERSION_MISSING when schemaVersion is absent", async () => {
