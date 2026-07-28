@@ -60,6 +60,18 @@ export function syncGenerationForJobFailure(
     return;
   }
 
+  if (jobType === "export_preparation") {
+    const pendingExport = record.exports.find((entry) => entry.status === "preparing");
+    if (pendingExport) {
+      pendingExport.status = "failed";
+      pendingExport.failureReason = failureMessage ?? failureCode ?? "Export preparation failed.";
+      pendingExport.completedAt = new Date().toISOString();
+    }
+    record.exportInProgress = false;
+    record.updatedAt = new Date().toISOString();
+    return;
+  }
+
   if (jobType && NON_GENERATION_FAILURE_JOB_TYPES.has(jobType)) {
     return;
   }

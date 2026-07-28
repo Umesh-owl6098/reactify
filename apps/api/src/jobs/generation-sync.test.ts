@@ -85,9 +85,37 @@ describe("syncGenerationForJobFailure", () => {
   });
 
   it("does not mark the generation Failed when export preparation fails", () => {
-    const record = createReadyRecord();
-    syncGenerationForJobFailure(record, ErrorCode.EXPORT_IN_PROGRESS, "export_preparation");
+    const record = createReadyRecord({
+      exportInProgress: true,
+      exports: [
+        {
+          exportId: "8f578d7e-9e57-4efb-90e7-765a9b2678b3",
+          status: "preparing",
+          filename: "project-v1.zip",
+          projectName: "project",
+          generationId: "924ae008-db1d-44ed-97b7-2019de8b6bf4",
+          versionId: "version-1",
+          versionNumber: 1,
+          projectHash: "hash",
+          fileCount: 0,
+          totalSizeBytes: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    syncGenerationForJobFailure(
+      record,
+      ErrorCode.EXPORT_IN_PROGRESS,
+      "export_preparation",
+      "Export storage is unavailable.",
+    );
+
     expect(record.status).toBe("Ready");
+    expect(record.exportInProgress).toBe(false);
+    expect(record.exports[0]).toMatchObject({
+      status: "failed",
+      failureReason: "Export storage is unavailable.",
+    });
   });
 
   it.each(["edit_intent_analysis", "project_edit_generation"] as const)(

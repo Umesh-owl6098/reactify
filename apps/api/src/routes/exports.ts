@@ -91,30 +91,53 @@ export async function registerExportRoutes(
         return reply.status(200).send(ExportSummarySchema.parse(initiated.summary));
       }
 
-      const accepted = await jobService.enqueue({
-        generationId: id,
-        ownerId: request.auth!.user.id,
-        jobType: "export_preparation",
-        payload: {
-          generationId: id,
-          exportId: initiated.exportId!,
-          versionId: initiated.summary.versionId,
-          expectedProjectHash: initiated.summary.projectHash,
-          projectName: parsed.data.projectName,
-          includeMetadata: parsed.data.includeMetadata,
-          includeGenerationSummary: parsed.data.includeGenerationSummary,
-        },
-        idempotencyKey:
-          typeof idempotencyKey === "string"
-            ? idempotencyKey
-            : `export-${id}-${initiated.summary.versionId}-${initiated.summary.projectHash}`,
-      });
+      // A separate worker hydrates the generation before running this job. The
+      // pending export must therefore be durable before enqueueing; otherwise
+      // a fast worker can observe a generation with no export record, fail the
+      // job, and leave the browser polling a permanently "preparing" export.
+      await store.persist(record);
 
-      void store.persist(record);
-      return reply.status(202).send({
-        export: ExportSummarySchema.parse(initiated.summary),
-        job: JobAcceptedResponseSchema.parse(accepted.job),
-      });
+      try {
+        const accepted = await jobService.enqueue({
+          generationId: id,
+          ownerId: request.auth!.user.id,
+          jobType: "export_preparation",
+          payload: {
+            generationId: id,
+            exportId: initiated.exportId!,
+            versionId: initiated.summary.versionId,
+            expectedProjectHash: initiated.summary.projectHash,
+            projectName: parsed.data.projectName,
+            includeMetadata: parsed.data.includeMetadata,
+            includeGenerationSummary: parsed.data.includeGenerationSummary,
+          },
+          idempotencyKey:
+            typeof idempotencyKey === "string"
+              ? idempotencyKey
+              : `export-${id}-${initiated.summary.versionId}-${initiated.summary.projectHash}`,
+        });
+
+        return reply.status(202).send({
+          export: ExportSummarySchema.parse(initiated.summary),
+          job: JobAcceptedResponseSchema.parse(accepted.job),
+        });
+      } catch (error) {
+        const pending = exportService.getExport(record, initiated.exportId!);
+        if (pending) {
+          pending.status = "failed";
+          pending.failureReason = error instanceof Error ? error.message : "Export preparation could not be queued.";
+          pending.completedAt = new Date().toISOString();
+        }
+        record.exportInProgress = false;
+        await store.persist(record);
+        return sendError(
+          reply,
+          request,
+          503,
+          ErrorCode.EXPORT_FAILED,
+          pending?.failureReason ?? "Export preparation could not be queued.",
+        );
+      }
     }
 
     const result = await exportService.createExport(

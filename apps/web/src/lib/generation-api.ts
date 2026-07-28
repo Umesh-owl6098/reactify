@@ -43,7 +43,7 @@ import {
   type PreviewScreenshotSubmission,
   type VisualCorrectionRequest,
 } from "@reactify/generation-contracts";
-import { type APIErrorBody, JobAcceptedResponseSchema } from "@reactify/shared";
+import { type APIErrorBody, JobAcceptedResponseSchema, JobStatusResponseSchema } from "@reactify/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -420,8 +420,8 @@ export async function createProjectExport(generationId: string, request: ExportR
   const body: unknown = await response.json();
   if (body && typeof body === "object" && "export" in body) {
     const wrapped = body as { export: unknown; job?: unknown };
-    JobAcceptedResponseSchema.parse(wrapped.job);
-    return waitForExportReady(generationId, ExportSummarySchema.parse(wrapped.export).exportId);
+    const job = JobAcceptedResponseSchema.parse(wrapped.job);
+    return waitForExportReady(generationId, ExportSummarySchema.parse(wrapped.export).exportId, job.jobId);
   }
 
   return ExportSummarySchema.parse(body);
@@ -430,6 +430,7 @@ export async function createProjectExport(generationId: string, request: ExportR
 async function waitForExportReady(
   generationId: string,
   exportId: string,
+  jobId?: string,
   timeoutMs = 120_000,
 ): Promise<ReturnType<typeof ExportSummarySchema.parse>> {
   const started = Date.now();
@@ -443,7 +444,23 @@ async function waitForExportReady(
     await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
 
-  throw new Error("Export preparation timed out.");
+  const detail = await fetchExportDetail(generationId, exportId);
+  if (detail.export.failureReason) {
+    throw new Error(detail.export.failureReason);
+  }
+  if (jobId) {
+    const jobResponse = await apiFetch(`/api/v1/jobs/${jobId}`);
+    if (jobResponse.ok) {
+      const job = JobStatusResponseSchema.parse(await jobResponse.json());
+      if (job.failureMessage) {
+        throw new Error(`[${job.failureCode ?? "EXPORT_FAILED"}] ${job.failureMessage}`);
+      }
+      if (job.status === "queued" || job.status === "retry_scheduled") {
+        throw new Error(`Export worker has not started the job (current status: ${job.status}).`);
+      }
+    }
+  }
+  throw new Error("Export preparation did not complete before the deadline.");
 }
 
 export async function fetchExportHistory(generationId: string) {
